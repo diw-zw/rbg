@@ -26,8 +26,6 @@ spec:
       serviceAccountName: rbgs-controller-sa
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      imagePullSecrets:
-      - name: my-acr-secret
       containers:
         - name: {{ .Chart.Name }}
           args:
@@ -41,10 +39,6 @@ spec:
             - --port-range={{ .Values.portAllocator.portRange | default 5000 }}
             {{- end }}
             - --scheduler-name={{ .Values.schedulerName | default "scheduler-plugins" }}
-            - --webhook-service-name=rbgs-webhook-service
-            - --webhook-service-namespace={{ .Release.Namespace }}
-            - --webhook-cert-secret=rbgs-webhook-cert
-            - --webhook-cert-dir=/tmp/k8s-webhook-server/certs
           env:
             - name: POD_NAMESPACE
               valueFrom:
