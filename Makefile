@@ -6,12 +6,14 @@ CRD_UPGRADER_IMG ?= ${IMG_REPO}/rbgs-upgrade-crd
 PATIO_IMG ?= ${IMG_REPO}/rbgs-patio-runtime
 BENCHMARK_DASHBOARD_IMG ?= ${IMG_REPO}/rbgs-benchmark-dashboard
 BENCHMARK_TOOL_GENAI_IMG ?= ${IMG_REPO}/rbgs-benchmark-tool-genai
+GENERATE_IMG ?= ${IMG_REPO}/rbgs-generate
 
 RBG_CONTROLLER_DOCKERFILE ?= Dockerfile
 CRD_UPGRADER_DOCKERFILE ?= tools/crd-upgrade/Dockerfile
 PATIO_DOCKERFILE ?= python/patio/Dockerfile
 BENCHMARK_DASHBOARD_DOCKERFILE ?= cmd/cli/cmd/llm/benchmark/dashboard/Dockerfile
 BENCHMARK_TOOL_GENAI_DOCKERFILE ?= tools/benchmark/genai/Dockerfile
+GENERATE_DOCKERFILE ?= tools/generate/Dockerfile
 
 VERSION ?= v0.7.0
 GIT_SHA ?= $(shell git rev-parse --short HEAD || echo "HEAD")
@@ -231,6 +233,14 @@ docker-build: ${DOCKER_BUILD}
 
 .PHONY: docker-build-benchmark
 docker-build-benchmark: ${DOCKER_BUILD_BENCHMARK}
+
+.PHONY: docker-build-generate
+docker-build-generate: ## Build docker image for generate (aiconfigurator + generate-rbg-yaml)
+	$(CONTAINER_TOOL) build -f ${GENERATE_DOCKERFILE} -t ${GENERATE_IMG}:${TAG} $(DOCKER_BUILD_ARGS) tools/generate
+
+.PHONY: docker-push-generate
+docker-push-generate: ## Push docker image for generate
+	$(CONTAINER_TOOL) push ${GENERATE_IMG}:${TAG}
 
 .PHONY: docker-push-controller
 docker-push-controller:

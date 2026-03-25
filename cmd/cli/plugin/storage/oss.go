@@ -19,6 +19,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"unicode"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -72,6 +73,9 @@ func (o *OSSStorage) Init(config map[string]interface{}) error {
 	if o.storageSize, ok = config["storageSize"].(string); !ok || o.storageSize == "" {
 		return fmt.Errorf("storageSize is required in storage config for oss type")
 	}
+	if err := validateStorageQuantity(o.storageSize); err != nil {
+		return err
+	}
 	if o.url, ok = config["url"].(string); !ok || o.url == "" {
 		return fmt.Errorf("url is required in storage config for oss type")
 	}
@@ -91,6 +95,23 @@ func (o *OSSStorage) Init(config map[string]interface{}) error {
 		return fmt.Errorf("akSecret is required in storage config for oss type")
 	}
 
+	return nil
+}
+
+// validateStorageQuantity checks that s is a valid Kubernetes resource quantity
+// with a storage unit suffix (e.g. 100Gi, 1Ti, 500Mi).
+// Plain integers without a suffix (e.g. "100") are rejected because they are
+// dimensionless quantities and meaningless as PV storage sizes.
+func validateStorageQuantity(s string) error {
+	if _, err := resource.ParseQuantity(s); err != nil {
+		return fmt.Errorf("invalid storageSize %q: must be a valid Kubernetes resource quantity (e.g. 100Gi): %w", s, err)
+	}
+	// Reject bare integers that have no unit suffix.
+	// resource.ParseQuantity accepts "100" as a valid dimensionless value,
+	// but that is not a meaningful storage size.
+	if len(s) > 0 && unicode.IsDigit(rune(s[len(s)-1])) {
+		return fmt.Errorf("invalid storageSize %q: must include a storage unit suffix (e.g. 100Gi, 1Ti, 500Mi)", s)
+	}
 	return nil
 }
 
