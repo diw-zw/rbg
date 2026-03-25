@@ -141,7 +141,7 @@ kind: Config`
 	require.NoError(t, os.WriteFile(p, []byte(yaml1), 0600))
 	t.Setenv(EnvConfigPath, p)
 
-	instance = nil
+	Reset()
 	c, err := Load()
 	require.NoError(t, err)
 	assert.Equal(t, "rbg/v1alpha1", c.APIVersion)
@@ -149,7 +149,7 @@ kind: Config`
 	yaml2 := `apiVersion: rbg/v1alpha2
 kind: Config`
 	require.NoError(t, os.WriteFile(p, []byte(yaml2), 0600))
-	instance = nil
+	Reset()
 	c, err = Load()
 	require.NoError(t, err)
 	assert.Equal(t, "rbg/v1alpha2", c.APIVersion)
@@ -427,7 +427,7 @@ func TestSaveAndReload(t *testing.T) {
 	c.SetEngine("vllm", map[string]interface{}{"image": "img"})
 	require.NoError(t, c.Save())
 
-	instance = nil
+	Reset()
 	loaded, err := Load()
 	require.NoError(t, err)
 	assert.Equal(t, "s1", loaded.CurrentStorage)

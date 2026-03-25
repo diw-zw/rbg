@@ -127,6 +127,34 @@ func TestOSSStorage_Init_OK_WithoutSubpath(t *testing.T) {
 	assert.Equal(t, "/", p.subpath)
 }
 
+func TestOSSStorage_Init_InvalidStorageSize(t *testing.T) {
+	invalidSizes := []string{"abc", "100", "Gi100", "100gi", "1.5.0Gi", "100TB"}
+	for _, size := range invalidSizes {
+		t.Run("invalid_"+size, func(t *testing.T) {
+			config := testOSSConfig()
+			config["storageSize"] = size
+			p := &OSSStorage{}
+			err := p.Init(config)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid storageSize")
+		})
+	}
+}
+
+func TestOSSStorage_Init_ValidStorageSizes(t *testing.T) {
+	validSizes := []string{"100Gi", "1Ti", "500Mi", "2048M", "1G"}
+	for _, size := range validSizes {
+		t.Run("valid_"+size, func(t *testing.T) {
+			config := testOSSConfig()
+			config["storageSize"] = size
+			p := &OSSStorage{}
+			err := p.Init(config)
+			require.NoError(t, err)
+			assert.Equal(t, size, p.storageSize)
+		})
+	}
+}
+
 func TestOSSStorage_MountPath(t *testing.T) {
 	p := &OSSStorage{}
 	assert.Equal(t, "/models", p.MountPath())

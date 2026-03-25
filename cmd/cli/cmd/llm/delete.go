@@ -19,6 +19,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -63,32 +64,32 @@ to the services you intend to remove
 			ctx := context.Background()
 
 			// Delete by name(s), validating each is CLI-managed
-			var errCount int
+			var failedNames []string
 			for _, name := range args {
 				// Fetch the RBG first to verify it's CLI-managed
 				rbg, err := client.WorkloadsV1alpha2().RoleBasedGroups(namespace).Get(ctx, name, metav1.GetOptions{})
 				if err != nil {
 					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "error: failed to get %s/%s: %v\n", namespace, name, err)
-					errCount++
+					failedNames = append(failedNames, name)
 					continue
 				}
 
 				// Verify the RBG was created by the CLI
 				if rbg.Labels[llmmeta.RunCommandSourceLabelKey] != llmmeta.RunCommandSourceLabelValue {
 					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "error: %s/%s is not managed by kubectl-rbg CLI (missing or incorrect source label)\n", namespace, name)
-					errCount++
+					failedNames = append(failedNames, name)
 					continue
 				}
 
 				if err := client.WorkloadsV1alpha2().RoleBasedGroups(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "error: failed to delete %s/%s: %v\n", namespace, name, err)
-					errCount++
+					failedNames = append(failedNames, name)
 				} else {
 					fmt.Printf("rolebasedgroups.workloads.x-k8s.io \"%s\" deleted\n", name)
 				}
 			}
-			if errCount > 0 {
-				return fmt.Errorf("%d deletion(s) failed", errCount)
+			if len(failedNames) > 0 {
+				return fmt.Errorf("%d deletion(s) failed: %s", len(failedNames), strings.Join(failedNames, ", "))
 			}
 			return nil
 		},

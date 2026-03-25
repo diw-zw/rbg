@@ -17,17 +17,26 @@ limitations under the License.
 package generate
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
+	genericclioptions "k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/rbgs/cmd/cli/cmd/llm/generate/plugin"
+	"sigs.k8s.io/rbgs/cmd/cli/config"
+	storageplugin "sigs.k8s.io/rbgs/cmd/cli/plugin/storage"
+	"sigs.k8s.io/rbgs/cmd/cli/util"
 )
 
 // NewGenerateCmd creates the generate command
-func NewGenerateCmd() *cobra.Command {
+func NewGenerateCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
 	config := &TaskConfig{
 		// Set defaults
 		BackendName:      BackendSGLang,
@@ -38,29 +47,37 @@ func NewGenerateCmd() *cobra.Command {
 		TPOT:             -1,
 		RequestLatency:   -1,
 		DatabaseMode:     DatabaseModeSilicon,
-		SaveDir:          "/tmp/rbg-llm-generate-output",
+		SaveDir:          "",
 		ConfiguratorTool: AIConfigurator,
 		ExtraArgs:        make(map[string]string),
 	}
 
+	var (
+		storage      string
+		image        string
+		skipDownload bool
+		silence      bool
+	)
+
 	cmd := &cobra.Command{
 		Use:   "generate",
 		Short: "Generate optimized RBG deployment configurations using AI Configurator",
-		Long: `The generate command integrates with AI Configurator to generate optimized
-deployment configurations for AI model serving. It supports both Prefill-Decode
-disaggregated mode and aggregated mode deployments.
+		Long: `The generate command runs a Kubernetes Pod that uses AI Configurator to generate
+optimized deployment configurations for AI model serving. The model must already
+exist in the configured storage. Generated YAML files are downloaded to --save-dir.
 
 Example:
-  kubectl-rbg llm generate --configurator-tool aiconfigurator --model Qwen/Qwen3.5-9B --system h200_sxm --total-gpus 8 \
-    --backend sglang --isl 4000 --osl 1000 --ttft 1000 --tpot 10 --save-dir /tmp/rbg-llm-generate-output
+  kubectl-rbg llm generate --model Qwen/Qwen3-32B --system h200_sxm --total-gpus 8 \\
+    --backend sglang --isl 4000 --osl 1000 --ttft 1000 --tpot 10
 
 This will:
-  1. Check if aiconfigurator is installed
-  2. Run AI Configurator optimization
-  3. Parse the generated configurations
-  4. Generate RBG-compatible YAML files for both deployment modes`,
+  1. Create a Kubernetes Pod with the aiconfigurator image
+  2. Mount the configured storage into the Pod container
+  3. Run aiconfigurator and render RBG deployment YAMLs inside the container
+  4. Download the generated YAML files to --save-dir
+  5. Delete the Pod after download completes (or on interrupt)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRecommender(config)
+			return runGenerate(cf, config, storage, image, skipDownload, silence)
 		},
 	}
 
@@ -73,8 +90,8 @@ This will:
 	cmd.Flags().IntVar(&config.ISL, "isl", 4000, "Input sequence length")
 	cmd.Flags().IntVar(&config.OSL, "osl", 1000, "Output sequence length")
 
-	cmd.Flags().Float64Var(&config.TTFT, "ttft", -1, "Time to first token in milliseconds (required with --tpot if --request-latency not set)")
-	cmd.Flags().Float64Var(&config.TPOT, "tpot", -1, "Time per output token in milliseconds (required with --ttft if --request-latency not set)")
+	cmd.Flags().Float64Var(&config.TTFT, "ttft", -1, "Time to first token in milliseconds")
+	cmd.Flags().Float64Var(&config.TPOT, "tpot", -1, "Time per output token in milliseconds")
 	cmd.Flags().Float64Var(&config.RequestLatency, "request-latency", -1, "End-to-end request latency target in milliseconds (alternative to --ttft and --tpot)")
 
 	// Core optional parameters
@@ -83,10 +100,16 @@ This will:
 	cmd.Flags().StringVar(&config.BackendVersion, "backend-version", "", "Backend version")
 	cmd.Flags().IntVar(&config.Prefix, "prefix", 0, "Prefix cache length")
 	cmd.Flags().StringVar(&config.DatabaseMode, "database-mode", DatabaseModeSilicon, "Database mode (SILICON, HYBRID, EMPIRICAL, SOL)")
-	cmd.Flags().StringVar(&config.SaveDir, "save-dir", "/tmp/rbg-llm-generate-output", "Directory to save results")
+	cmd.Flags().StringVar(&config.SaveDir, "save-dir", "", "Local directory to save generated YAML files (defaults to current directory)")
+
+	// Job / image options
+	cmd.Flags().StringVar(&storage, "storage", "", "Storage to use (overrides default from config)")
+	cmd.Flags().StringVar(&image, "image", "", "Override the aiconfigurator container image")
+	cmd.Flags().BoolVar(&skipDownload, "skip-download", false, "Skip downloading generated files to local disk (files remain in storage)")
+	cmd.Flags().BoolVar(&silence, "silence", false, "Suppress pod log output during generation")
 
 	// Mark required flags
-	for _, flag := range []string{"model", "system", "total-gpus", "isl", "osl"} {
+	for _, flag := range []string{"model", "system", "total-gpus"} {
 		if err := cmd.MarkFlagRequired(flag); err != nil {
 			klog.Fatalf("Failed to mark flag %s as required: %v", flag, err)
 		}
@@ -95,84 +118,140 @@ This will:
 	return cmd
 }
 
-// runRecommender executes the main recommender workflow
-func runRecommender(config *TaskConfig) error {
-	klog.Info("=== RBG LLM Generate ===")
+// runGenerate is the main entry point for the generate command.
+// It creates a Kubernetes Pod using the generator plugin, waits for completion,
+// and optionally downloads the output to local disk.
+// The Pod is always deleted on exit (normal, error, or interrupt via SIGINT/SIGTERM).
+func runGenerate(cf *genericclioptions.ConfigFlags, taskCfg *TaskConfig, storage, image string, skipDownload, silence bool) error {
+	fmt.Println("=== RBG LLM Generate ===")
 
 	// Step 1: Validate configuration
-	klog.V(2).Info("Validating configuration...")
-	if err := validateConfig(config); err != nil {
+	if err := validateConfig(taskCfg); err != nil {
 		return fmt.Errorf("configuration validation failed: %w", err)
 	}
-	klog.V(2).Info("Configuration validated successfully")
 
-	// Step 2: Check configurator tool availability
-	klog.Info("Checking dependencies...")
-	if config.ConfiguratorTool == AIConfigurator {
-		// For aiconfigurator, perform version check
-		if err := CheckAIConfiguratorAvailabilityWithVersion(); err != nil {
-			return err
-		}
-	} else {
-		// For other tools, just check if they exist
-		if err := CheckConfiguratorAvailability(config.ConfiguratorTool); err != nil {
-			return err
-		}
+	// Step 2: Load CLI config and resolve storage
+	cliCfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Step 3: Execute configurator
-	if err := ExecuteConfigurator(config); err != nil {
-		return err
+	storageName := cliCfg.CurrentStorage
+	if storage != "" {
+		storageName = storage
+	}
+	if storageName == "" {
+		return fmt.Errorf("no storage configured, please run 'kubectl rbg llm config add-storage' first")
 	}
 
-	// Step 4: Locate output directory
-	klog.Info("Locating generated configurations...")
-	outputDir, err := LocateOutputDirectory(config)
+	storageCfg, err := cliCfg.GetStorage(storageName)
 	if err != nil {
 		return err
 	}
-	klog.V(1).Infof("Using output directory: %s", outputDir)
 
-	// Step 5: Parse generator configurations
-	klog.Info("Parsing AI Configurator output...")
-	aggConfig, disaggConfig, err := ParseGeneratorConfigs(outputDir)
+	storagePlugin, err := storageplugin.Get(storageCfg.Type, storageCfg.Config)
+	if err != nil {
+		return fmt.Errorf("failed to initialize storage plugin: %w", err)
+	}
+	if storagePlugin == nil {
+		return fmt.Errorf("unknown storage type: %s", storageCfg.Type)
+	}
+
+	// Step 3: Resolve namespace and paths
+	ns := util.GetNamespace(cf)
+	mountPath := storagePlugin.MountPath()
+	modelPath := filepath.Join(mountPath, taskCfg.ModelName)
+	outputDir := OutputDir()
+
+	// Step 4: Build plugin config
+	pluginCfg := &plugin.Config{
+		ModelName:        taskCfg.ModelName,
+		SystemName:       taskCfg.SystemName,
+		DecodeSystemName: taskCfg.DecodeSystemName,
+		BackendName:      taskCfg.BackendName,
+		BackendVersion:   taskCfg.BackendVersion,
+		TotalGPUs:        taskCfg.TotalGPUs,
+		ISL:              taskCfg.ISL,
+		OSL:              taskCfg.OSL,
+		TTFT:             taskCfg.TTFT,
+		TPOT:             taskCfg.TPOT,
+		RequestLatency:   taskCfg.RequestLatency,
+		Prefix:           taskCfg.Prefix,
+		DatabaseMode:     taskCfg.DatabaseMode,
+		ModelPath:        modelPath,
+		OutputDir:        outputDir,
+		Namespace:        ns,
+		Image:            image,
+		ExtraArgs:        taskCfg.ExtraArgs,
+	}
+
+	// Step 5: Select generator plugin
+	var generatorPlugin plugin.Plugin
+	switch taskCfg.ConfiguratorTool {
+	case AIConfigurator, "":
+		generatorPlugin = &plugin.AIConfiguratorPlugin{}
+	default:
+		generatorPlugin = plugin.NewGeneralPlugin(taskCfg.ConfiguratorTool)
+	}
+
+	// Step 6: Create Pod executor and run the Pod
+	executor, err := NewPodExecutor(cf, storagePlugin, storageName, ns)
 	if err != nil {
 		return err
 	}
-	klog.V(2).Info("Parsing completed successfully")
 
-	// Step 6: Generate RBG YAML files
-	klog.Info("Generating RBG deployment YAMLs...")
+	// Set up a cancellable context driven by SIGINT/SIGTERM so that all
+	// in-flight API calls are aborted promptly when the user interrupts.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// Create deployment plans
-	disaggPlan := &DeploymentPlan{
-		Mode:        DeploymentModeDisagg,
-		Config:      disaggConfig,
-		OutputPath:  filepath.Join(config.SaveDir, fmt.Sprintf("%s-%s-disagg.yaml", normalizeModelName(config.ModelName), config.BackendName)),
-		ModelName:   config.ModelName,
-		BackendName: config.BackendName,
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		fmt.Println("\nInterrupted, cleaning up...")
+		cancel()
+	}()
+
+	fmt.Printf("Creating generate Pod for model %s...\n", taskCfg.ModelName)
+	podName, err := executor.Run(ctx, pluginCfg, generatorPlugin)
+	if err != nil {
+		return err
 	}
 
-	aggPlan := &DeploymentPlan{
-		Mode:        DeploymentModeAgg,
-		Config:      aggConfig,
-		OutputPath:  filepath.Join(config.SaveDir, fmt.Sprintf("%s-%s-agg.yaml", normalizeModelName(config.ModelName), config.BackendName)),
-		ModelName:   config.ModelName,
-		BackendName: config.BackendName,
+	// Always delete the Pod on exit (normal return, error, or signal-triggered cancel).
+	// A background context is used so the deletion succeeds even when ctx is cancelled.
+	defer func() {
+		executor.Delete(context.Background(), podName)
+	}()
+
+	// Step 7: Wait for generate container to complete
+	fmt.Printf("Waiting for Pod %s to complete...\n", podName)
+	state, err := executor.Wait(ctx, podName, silence)
+	if err != nil {
+		return err
+	}
+	if state == PodStateFailed {
+		return fmt.Errorf("generate pod %s failed, check logs with: kubectl logs %s -n %s -c %s", podName, podName, ns, ContainerNameGenerate)
+	}
+	fmt.Printf("\u2713 Generate Pod %s completed successfully\n", podName)
+
+	// Step 8: Download output to local disk
+	if skipDownload {
+		fmt.Printf("Skipping download. Output files are in storage at: %s\n", outputDir)
+		return nil
 	}
 
-	// Render YAML files
-	if err := RenderDeploymentYAML(disaggPlan); err != nil {
-		return fmt.Errorf("failed to generate disaggregated mode YAML: %w", err)
+	localDir := taskCfg.SaveDir
+	if localDir == "" {
+		localDir = "."
+	}
+	fmt.Printf("Downloading generated files to %s...\n", localDir)
+	if err := executor.DownloadOutput(ctx, podName, outputDir, localDir); err != nil {
+		return fmt.Errorf("failed to download output: %w", err)
 	}
 
-	if err := RenderDeploymentYAML(aggPlan); err != nil {
-		return fmt.Errorf("failed to generate aggregated mode YAML: %w", err)
-	}
-
-	// Step 7: Display results
-	displayResults(config, disaggPlan, aggPlan, disaggConfig, aggConfig)
-
+	fmt.Printf("\u2713 Generated YAML files saved to: %s\n", localDir)
 	return nil
 }
 
@@ -220,75 +299,6 @@ func validateConfig(config *TaskConfig) error {
 	}
 
 	return nil
-}
-
-// displayResults shows the generated deployment plans to the user
-func displayResults(config *TaskConfig, disaggPlan, aggPlan *DeploymentPlan, disaggConfig, aggConfig *GeneratorConfig) {
-	klog.Info("✓ Successfully generated 2 deployment recommendations:")
-	klog.Info("")
-
-	// Disaggregated mode summary
-	klog.Info("Plan 1: Prefill-Decode Disaggregated Mode")
-	klog.Infof("  File: %s", disaggPlan.OutputPath)
-	klog.Info("  Configuration:")
-
-	prefillParams := GetWorkerParams(disaggConfig.Params.Prefill)
-	decodeParams := GetWorkerParams(disaggConfig.Params.Decode)
-
-	prefillTotalGPUs := disaggConfig.Workers.PrefillWorkers * prefillParams.TensorParallelSize
-	decodeTotalGPUs := disaggConfig.Workers.DecodeWorkers * decodeParams.TensorParallelSize
-
-	klog.Infof("    - Prefill Workers: %d (each using %d GPU)",
-		disaggConfig.Workers.PrefillWorkers, prefillParams.TensorParallelSize)
-	klog.Infof("    - Decode Workers: %d (each using %d GPU)",
-		disaggConfig.Workers.DecodeWorkers, decodeParams.TensorParallelSize)
-	klog.Infof("    - Total GPU Usage: %d", prefillTotalGPUs+decodeTotalGPUs)
-	klog.Info("")
-
-	// Aggregated mode summary
-	klog.Info("Plan 2: Aggregated Mode")
-	klog.Infof("  File: %s", aggPlan.OutputPath)
-	klog.Info("  Configuration:")
-
-	aggParams := GetWorkerParams(aggConfig.Params.Agg)
-	aggTotalGPUs := aggConfig.Workers.AggWorkers * aggParams.TensorParallelSize
-
-	klog.Infof("    - Workers: %d (each using %d GPU)",
-		aggConfig.Workers.AggWorkers, aggParams.TensorParallelSize)
-	klog.Infof("    - Total GPU Usage: %d", aggTotalGPUs)
-	klog.Info("")
-
-	// Deployment instructions
-	klog.Info("To deploy, run:")
-	klog.Infof("  kubectl apply -f %s", disaggPlan.OutputPath)
-	klog.Info("or")
-	klog.Infof("  kubectl apply -f %s", aggPlan.OutputPath)
-	klog.Info("")
-	klog.Infof("Note: Ensure the '%s' PVC exists in your cluster before deploying.", normalizeModelName(config.ModelName))
-}
-
-// normalizeModelName converts model name to a valid Kubernetes resource name
-func normalizeModelName(name string) string {
-	// Get the base name of the model, handling path separators.
-	name = GetModelBaseName(name)
-	if name == "" {
-		name = "rbg"
-	}
-
-	// Convert to lowercase and replace underscores/dots with hyphens
-	// Preserve existing hyphens as they are valid in DNS labels
-	var sb strings.Builder
-	sb.Grow(len(name))
-	for _, c := range name {
-		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
-			sb.WriteRune(c)
-		} else if c >= 'A' && c <= 'Z' {
-			sb.WriteRune(c + 32) // Convert to lowercase
-		} else if c == '_' || c == '.' || c == '-' {
-			sb.WriteRune('-')
-		}
-	}
-	return sb.String()
 }
 
 func GetModelBaseName(modelName string) string {
