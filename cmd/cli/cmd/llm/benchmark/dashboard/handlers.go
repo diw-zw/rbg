@@ -183,6 +183,17 @@ func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request, experim
 		return
 	}
 
+	// Ensure only JSON result files are returned and exclude experiment metadata.
+	lowerName := strings.ToLower(fileName)
+	if !strings.HasSuffix(lowerName, ".json") {
+		s.writeError(w, http.StatusBadRequest, "Only JSON result files can be requested")
+		return
+	}
+	if strings.EqualFold(fileName, "experiment_metadata.json") {
+		s.writeError(w, http.StatusForbidden, "Access to experiment metadata is not allowed")
+		return
+	}
+
 	filePath := filepath.Join(s.dataDir, experimentName, fileName)
 
 	// Security check: ensure the path is within dataDir
@@ -198,6 +209,13 @@ func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request, experim
 			return
 		}
 		s.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to read result: %v", err))
+		return
+	}
+
+	// Validate that the content is valid JSON
+	var jsonData interface{}
+	if err := json.Unmarshal(data, &jsonData); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid JSON content in result file")
 		return
 	}
 
@@ -219,6 +237,16 @@ func (s *Server) handleGetImage(w http.ResponseWriter, r *http.Request, experime
 		return
 	}
 
+	// Validate that the file has an image extension
+	ext := strings.ToLower(filepath.Ext(fileName))
+	switch ext {
+	case extPNG, extJPG, extJPEG, extGIF, extSVG:
+		// Allowed image extensions
+	default:
+		s.writeError(w, http.StatusBadRequest, "Invalid image format. Only png, jpg, jpeg, gif, svg are allowed")
+		return
+	}
+
 	filePath := filepath.Join(s.dataDir, experimentName, fileName)
 
 	// Security check
@@ -229,7 +257,6 @@ func (s *Server) handleGetImage(w http.ResponseWriter, r *http.Request, experime
 
 	// Determine content type
 	contentType := "application/octet-stream"
-	ext := strings.ToLower(filepath.Ext(fileName))
 	switch ext {
 	case extPNG:
 		contentType = "image/png"
@@ -525,6 +552,7 @@ func isValidName(name string) bool {
 }
 
 // isPathSafe checks if the given path is within the data directory.
+// It resolves symlinks before checking containment to prevent symlink-based path traversal attacks.
 func (s *Server) isPathSafe(path string) bool {
 	// Clean the path to resolve .. and . segments
 	cleanPath := filepath.Clean(path)
@@ -539,10 +567,48 @@ func (s *Server) isPathSafe(path string) bool {
 		return false
 	}
 
-	// Ensure the path has the dataDir as a prefix with separator
-	// This prevents partial directory name matching
-	dataDirPrefix := absDataDir + string(filepath.Separator)
-	return strings.HasPrefix(absPath+string(filepath.Separator), dataDirPrefix)
+	// Resolve the data directory (must exist)
+	resolvedDataDir, err := filepath.EvalSymlinks(absDataDir)
+	if err != nil {
+		return false
+	}
+	dataDirPrefix := resolvedDataDir + string(filepath.Separator)
+
+	// Check if the path exists
+	_, err = os.Stat(absPath)
+	if err == nil {
+		// Path exists - fully resolve it and check containment
+		resolvedPath, err := filepath.EvalSymlinks(absPath)
+		if err != nil {
+			return false
+		}
+		return strings.HasPrefix(resolvedPath+string(filepath.Separator), dataDirPrefix)
+	}
+
+	// Path doesn't exist - check that the nearest existing ancestor is within dataDir
+	// We can only verify the safety of existing directories; non-existent portions
+	// will be validated when actually created
+	current := filepath.Dir(absPath)
+	for {
+		// Check if current directory exists
+		_, err := os.Stat(current)
+		if err == nil {
+			// Found an existing ancestor - resolve it and verify it's within dataDir
+			resolvedCurrent, err := filepath.EvalSymlinks(current)
+			if err != nil {
+				return false
+			}
+			return strings.HasPrefix(resolvedCurrent+string(filepath.Separator), dataDirPrefix)
+		}
+
+		// Current doesn't exist, go to parent
+		parent := filepath.Dir(current)
+		if parent == current {
+			// Reached root without finding any existing directory
+			return false
+		}
+		current = parent
+	}
 }
 
 // writeJSON writes a JSON response.

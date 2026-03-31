@@ -349,9 +349,6 @@ func injectMetadataSave(podTemplate *corev1.PodTemplateSpec, modelID, revision, 
 
 	container := &podTemplate.Spec.Containers[0]
 
-	// Generate timestamp inside the container using shell command
-	timestampCmd := "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
 	// Build the metadata JSON using proper JSON encoding to prevent injection
 	// Note: downloadedAt is generated inside the container after download completes
 	// to ensure accurate timing, not at CLI execution time
@@ -362,7 +359,7 @@ func injectMetadataSave(podTemplate *corev1.PodTemplateSpec, modelID, revision, 
 	}{
 		ModelID:      modelID,
 		Revision:     revision,
-		DownloadedAt: timestampCmd,
+		DownloadedAt: "{{DOWNLOADED_AT}}",
 	}
 	metadataBytes, err := json.Marshal(metadata)
 	if err != nil {
@@ -371,13 +368,19 @@ func injectMetadataSave(podTemplate *corev1.PodTemplateSpec, modelID, revision, 
 	}
 	metadataJSON := string(metadataBytes)
 
+	// Build the metadata save command:
+	// 1. Get current timestamp
+	// 2. Replace placeholder with actual timestamp using sed
+	// 3. Write to file
+	// Use printf + shellEscape to safely handle special characters in JSON
+	metadataCmd := fmt.Sprintf(
+		`downloadedAt=$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ) && printf '%%s\n' %s | sed "s/{{DOWNLOADED_AT}}/$downloadedAt/g" > %s`,
+		shellEscape(metadataJSON), shellEscape(modelPath+"/.rbg-metadata.json"))
+
 	// Case 1: Container already uses /bin/sh -c, directly append to the command
 	if len(container.Command) >= 2 && container.Command[0] == "/bin/sh" && container.Command[1] == "-c" {
 		if len(container.Args) > 0 {
-			originalCmd := container.Args[0]
-			// Use printf instead of echo to prevent flag injection (e.g. echo -e, echo -n)
-			container.Args[0] = fmt.Sprintf(`%s && printf '%%s\n' %s > %s`,
-				originalCmd, shellEscape(metadataJSON), shellEscape(modelPath+"/.rbg-metadata.json"))
+			container.Args[0] = container.Args[0] + " && " + metadataCmd
 		}
 		return
 	}
