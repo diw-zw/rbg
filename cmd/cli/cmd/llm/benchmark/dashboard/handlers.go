@@ -176,11 +176,11 @@ func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request, experim
 	}
 
 	if strings.Contains(experimentName, "/") || strings.Contains(experimentName, "\\") || strings.Contains(experimentName, "..") {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid file name: %s", experimentName))
+		s.writeError(w, http.StatusBadRequest, "Invalid experiment name")
 		return
 	}
 	if strings.Contains(fileName, "/") || strings.Contains(fileName, "\\") || strings.Contains(fileName, "..") {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid file name: %s", fileName))
+		s.writeError(w, http.StatusBadRequest, "Invalid result filename")
 		return
 	}
 
@@ -239,11 +239,11 @@ func (s *Server) handleGetImage(w http.ResponseWriter, r *http.Request, experime
 		return
 	}
 	if strings.Contains(experimentName, "/") || strings.Contains(experimentName, "\\") || strings.Contains(experimentName, "..") {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid file name: %s", experimentName))
+		s.writeError(w, http.StatusBadRequest, "Invalid experiment name")
 		return
 	}
 	if strings.Contains(fileName, "/") || strings.Contains(fileName, "\\") || strings.Contains(fileName, "..") {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid file name: %s", fileName))
+		s.writeError(w, http.StatusBadRequest, "Invalid result filename")
 		return
 	}
 
@@ -419,16 +419,32 @@ func (s *Server) listExperiments() ([]Experiment, error) {
 // getExperiment returns details of a specific experiment.
 func (s *Server) getExperiment(name string) (*Experiment, error) {
 	if strings.Contains(name, "/") || strings.Contains(name, "\\") || strings.Contains(name, "..") {
-		return nil, fmt.Errorf("Invalid file name: %s", name)
+		return nil, os.ErrNotExist
 	}
-	// Resolve the experiment directory safely under s.dataDir to prevent path traversal.
-	expDirJoined := filepath.Join(s.dataDir, name)
-	expDir, err := filepath.Abs(expDirJoined)
+	// Resolve symlinks for both the base directory and the experiment directory
+	// before checking containment, so a symlink under s.dataDir cannot escape it.
+	baseDir, err := filepath.EvalSymlinks(s.dataDir)
 	if err != nil {
 		return nil, err
 	}
-	// Ensure the resolved experiment directory is still within the data directory.
-	if !strings.HasPrefix(expDir+string(os.PathSeparator), s.dataDir+string(os.PathSeparator)) {
+	baseDir, err = filepath.Abs(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	expDirJoined := filepath.Join(s.dataDir, name)
+	expDir, err := filepath.EvalSymlinks(expDirJoined)
+	if err != nil {
+		return nil, err
+	}
+	expDir, err = filepath.Abs(expDir)
+	if err != nil {
+		return nil, err
+	}
+	relPath, err := filepath.Rel(baseDir, expDir)
+	if err != nil {
+		return nil, err
+	}
+	if relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
 		return nil, os.ErrNotExist
 	}
 	info, err := os.Stat(expDir)
@@ -479,7 +495,7 @@ func (s *Server) getExperiment(name string) (*Experiment, error) {
 // getResultSummaries returns summaries of all result files in an experiment.
 func (s *Server) getResultSummaries(experimentName string) ([]ResultSummary, error) {
 	if strings.Contains(experimentName, "/") || strings.Contains(experimentName, "\\") || strings.Contains(experimentName, "..") {
-		return nil, fmt.Errorf("Invalid file name: %s", experimentName)
+		return nil, os.ErrNotExist
 	}
 
 	// Local safety check: validate path is within dataDir
@@ -584,14 +600,42 @@ func isSafeRelativePath(absBaseDir, subpath string) (string, bool) {
 		return "", false
 	}
 
-	// Verify the path is within baseDir using prefix check
-	// Add separator to ensure we're matching complete directory names
-	baseDirPrefix := absBaseDir + string(filepath.Separator)
-	if absPath != absBaseDir && !strings.HasPrefix(absPath+string(filepath.Separator), baseDirPrefix) {
+	// Resolve symlinks for both base dir and target path
+	// This prevents symlink-based path traversal attacks
+	evalBaseDir, err := filepath.EvalSymlinks(absBaseDir)
+	if err != nil {
 		return "", false
 	}
 
-	return absPath, true
+	// For the target path, we need to handle the case where it may not exist yet
+	// Try to evaluate symlinks, but if the path doesn't exist, we'll validate
+	// against the parent directory
+	evalPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		// Path doesn't exist - validate against base dir
+		// Use filepath.Rel to ensure the path is relative to base dir
+		relPath, err := filepath.Rel(absBaseDir, absPath)
+		if err != nil {
+			return "", false
+		}
+		// Check if relative path escapes base dir
+		if strings.HasPrefix(relPath, "..") || relPath == ".." {
+			return "", false
+		}
+		return absPath, true
+	}
+
+	// Path exists - verify it's within the resolved base dir
+	relPath, err := filepath.Rel(evalBaseDir, evalPath)
+	if err != nil {
+		return "", false
+	}
+	// Check if relative path escapes base dir
+	if strings.HasPrefix(relPath, "..") || relPath == ".." {
+		return "", false
+	}
+
+	return evalPath, true
 }
 
 // writeJSON writes a JSON response.

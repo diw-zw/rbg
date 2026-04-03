@@ -109,6 +109,61 @@ func TestIsSafeRelativePath_PathTraversal(t *testing.T) {
 	// filepath.Join(dataDir, "....") would create a file named "...." inside dataDir
 }
 
+// TestIsSafeRelativePath_SymlinkTraversal tests that symlink-based path traversal is rejected.
+func TestIsSafeRelativePath_SymlinkTraversal(t *testing.T) {
+	tempDir := t.TempDir()
+	dataDir := filepath.Join(tempDir, "data")
+	outsideDir := filepath.Join(tempDir, "outside")
+
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		t.Fatalf("failed to create data dir: %v", err)
+	}
+	if err := os.MkdirAll(outsideDir, 0755); err != nil {
+		t.Fatalf("failed to create outside dir: %v", err)
+	}
+
+	server, err := NewServer(dataDir)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	// Create a secret file outside data directory
+	secretFile := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(secretFile, []byte("sensitive"), 0644); err != nil {
+		t.Fatalf("failed to create secret file: %v", err)
+	}
+
+	// Create a symlink inside dataDir that points outside
+	symlinkPath := filepath.Join(dataDir, "evil-symlink")
+	if err := os.Symlink(outsideDir, symlinkPath); err != nil {
+		t.Fatalf("failed to create symlink: %v", err)
+	}
+
+	// Attempt to access files through symlink should be rejected
+	_, ok := isSafeRelativePath(server.dataDir, "evil-symlink")
+	if ok {
+		t.Errorf("isSafeRelativePath(%q) = true, want false - symlink to outside dir should be rejected", "evil-symlink")
+	}
+
+	// Attempt to access secret file through symlink should be rejected
+	_, ok = isSafeRelativePath(server.dataDir, "evil-symlink/secret.txt")
+	if ok {
+		t.Errorf("isSafeRelativePath(%q) = true, want false - symlink path traversal should be rejected", "evil-symlink/secret.txt")
+	}
+
+	// Create a valid experiment directory with a symlink inside
+	expDir := filepath.Join(dataDir, "exp1")
+	if err := os.MkdirAll(expDir, 0755); err != nil {
+		t.Fatalf("failed to create experiment dir: %v", err)
+	}
+
+	// Valid experiment directory should be accepted
+	_, ok = isSafeRelativePath(server.dataDir, "exp1")
+	if !ok {
+		t.Errorf("isSafeRelativePath(%q) = false, want true - valid experiment dir should be accepted", "exp1")
+	}
+}
+
 // TestNewServer_AbsolutePath tests that NewServer converts dataDir to absolute path.
 func TestNewServer_AbsolutePath(t *testing.T) {
 	tempDir := t.TempDir()

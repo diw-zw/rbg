@@ -171,12 +171,18 @@ func GetPodComponentName(pod *v1.Pod) string {
 func GetPodComponentID(pod *v1.Pod) int32 {
 	componentId := pod.Labels[constants.ComponentIDLabelKey]
 	if len(componentId) != 0 {
-		id, _ := strconv.Atoi(componentId)
+		id, err := strconv.ParseInt(componentId, 10, 32)
+		if err != nil {
+			return 0
+		}
 		return int32(id)
 	}
 	list := strings.Split(pod.Name, "-")
 	componentId = list[len(list)-1]
-	id, _ := strconv.Atoi(componentId)
+	id, err := strconv.ParseInt(componentId, 10, 32)
+	if err != nil {
+		return 0
+	}
 	return int32(id)
 }
 
