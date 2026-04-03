@@ -22,209 +22,108 @@ import (
 	"testing"
 )
 
-// TestIsPathSafe_SymlinkTraversal tests that symlinks pointing outside the data directory
-// are properly rejected, preventing symlink-based path traversal attacks.
-func TestIsPathSafe_SymlinkTraversal(t *testing.T) {
-	// Create a temporary directory structure:
-	// /tmp/xxx/data/          (data directory)
-	// /tmp/xxx/outside/       (directory outside data)
-	// /tmp/xxx/outside/secret.txt  (sensitive file)
-	// /tmp/xxx/data/link -> /tmp/xxx/outside/secret.txt (symlink to outside)
+// TestIsSafeRelativePath_ValidNames tests that valid names are accepted.
+func TestIsSafeRelativePath_ValidNames(t *testing.T) {
+	tempDir := t.TempDir()
+	dataDir := filepath.Join(tempDir, "data")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		t.Fatalf("failed to create data dir: %v", err)
+	}
 
+	// Create server to get absolute dataDir
+	server, err := NewServer(dataDir)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		subpath string
+		wantOk  bool
+	}{
+		{"simple name", "experiment1", true},
+		{"name with hyphen", "my-experiment", true},
+		{"name with underscore", "my_experiment", true},
+		{"name with dots", "experiment.v1.0", true},
+		{"alphanumeric", "exp123", true},
+		{"empty string", "", false},
+		{"single dot", ".", false},
+		{"double dot", "..", false},
+		{"path traversal", "../outside", false},
+		{"absolute path", "/etc/passwd", false},
+		{"path separator", "subdir/file", false},
+		{"backslash", "subdir\\file", false},
+		{"parent reference", "exp/../file", false},
+		{"special chars", "exp@#$%", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := isSafeRelativePath(server.dataDir, tt.subpath)
+			if ok != tt.wantOk {
+				t.Errorf("isSafeRelativePath(%q) = %v, want %v", tt.subpath, ok, tt.wantOk)
+			}
+		})
+	}
+}
+
+// TestIsSafeRelativePath_PathTraversal tests that path traversal attempts are rejected.
+func TestIsSafeRelativePath_PathTraversal(t *testing.T) {
 	tempDir := t.TempDir()
 	dataDir := filepath.Join(tempDir, "data")
 	outsideDir := filepath.Join(tempDir, "outside")
+
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		t.Fatalf("failed to create data dir: %v", err)
+	}
+	if err := os.MkdirAll(outsideDir, 0755); err != nil {
+		t.Fatalf("failed to create outside dir: %v", err)
+	}
+
+	server, err := NewServer(dataDir)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	// Create a secret file outside data directory
 	secretFile := filepath.Join(outsideDir, "secret.txt")
-	symlinkPath := filepath.Join(dataDir, "link")
-
-	// Create directories
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		t.Fatalf("failed to create data dir: %v", err)
-	}
-	if err := os.MkdirAll(outsideDir, 0755); err != nil {
-		t.Fatalf("failed to create outside dir: %v", err)
-	}
-
-	// Create a secret file outside the data directory
-	if err := os.WriteFile(secretFile, []byte("sensitive data"), 0644); err != nil {
-		t.Fatalf("failed to create secret file: %v", err)
-	}
-
-	// Create a symlink inside dataDir pointing to the file outside
-	if err := os.Symlink(secretFile, symlinkPath); err != nil {
-		t.Fatalf("failed to create symlink: %v", err)
-	}
-
-	server := NewServer(dataDir)
-
-	// Test 1: The symlink itself should be detected as unsafe
-	// because it resolves to a path outside the data directory
-	if server.isPathSafe(symlinkPath) {
-		t.Errorf("isPathSafe(%q) = true, want false - symlink pointing outside data dir should be rejected", symlinkPath)
-	}
-
-	// Test 2: A normal file inside the data directory should be safe
-	normalFile := filepath.Join(dataDir, "normal.txt")
-	if err := os.WriteFile(normalFile, []byte("normal data"), 0644); err != nil {
-		t.Fatalf("failed to create normal file: %v", err)
-	}
-	if !server.isPathSafe(normalFile) {
-		t.Errorf("isPathSafe(%q) = false, want true - normal file inside data dir should be safe", normalFile)
-	}
-
-	// Test 3: A symlink pointing to another file inside dataDir should be safe
-	insideTarget := filepath.Join(dataDir, "target.txt")
-	if err := os.WriteFile(insideTarget, []byte("target data"), 0644); err != nil {
-		t.Fatalf("failed to create inside target file: %v", err)
-	}
-	insideSymlink := filepath.Join(dataDir, "inside_link")
-	if err := os.Symlink(insideTarget, insideSymlink); err != nil {
-		t.Fatalf("failed to create inside symlink: %v", err)
-	}
-	if !server.isPathSafe(insideSymlink) {
-		t.Errorf("isPathSafe(%q) = false, want true - symlink pointing inside data dir should be safe", insideSymlink)
-	}
-
-	// Test 4: Path traversal using .. should still be rejected
-	traversalPath := filepath.Join(dataDir, "..", "outside", "secret.txt")
-	if server.isPathSafe(traversalPath) {
-		t.Errorf("isPathSafe(%q) = true, want false - path traversal should be rejected", traversalPath)
-	}
-
-	// Test 5: Absolute path outside data dir should be rejected
-	if server.isPathSafe(secretFile) {
-		t.Errorf("isPathSafe(%q) = true, want false - absolute path outside data dir should be rejected", secretFile)
-	}
-}
-
-// TestIsPathSafe_NonExistentPath tests that non-existent paths are handled correctly
-// by checking their parent directory's safety.
-func TestIsPathSafe_NonExistentPath(t *testing.T) {
-	tempDir := t.TempDir()
-	dataDir := filepath.Join(tempDir, "data")
-	outsideDir := filepath.Join(tempDir, "outside")
-
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		t.Fatalf("failed to create data dir: %v", err)
-	}
-	if err := os.MkdirAll(outsideDir, 0755); err != nil {
-		t.Fatalf("failed to create outside dir: %v", err)
-	}
-
-	server := NewServer(dataDir)
-
-	// Test: Non-existent file inside data dir should be safe (parent is safe)
-	nonExistentInside := filepath.Join(dataDir, "newdir", "newfile.txt")
-	if !server.isPathSafe(nonExistentInside) {
-		t.Errorf("isPathSafe(%q) = false, want true - non-existent path inside data dir should be safe", nonExistentInside)
-	}
-
-	// Test: Non-existent file outside data dir should be rejected
-	nonExistentOutside := filepath.Join(outsideDir, "newfile.txt")
-	if server.isPathSafe(nonExistentOutside) {
-		t.Errorf("isPathSafe(%q) = true, want false - non-existent path outside data dir should be rejected", nonExistentOutside)
-	}
-}
-
-// TestIsPathSafe_SymlinkToDirectory tests symlinks that point to directories.
-func TestIsPathSafe_SymlinkToDirectory(t *testing.T) {
-	tempDir := t.TempDir()
-	dataDir := filepath.Join(tempDir, "data")
-	outsideDir := filepath.Join(tempDir, "outside")
-	insideSubdir := filepath.Join(dataDir, "subdir")
-
-	if err := os.MkdirAll(insideSubdir, 0755); err != nil {
-		t.Fatalf("failed to create inside subdir: %v", err)
-	}
-	if err := os.MkdirAll(outsideDir, 0755); err != nil {
-		t.Fatalf("failed to create outside dir: %v", err)
-	}
-
-	server := NewServer(dataDir)
-
-	// Create a symlink inside data pointing to outside directory
-	symlinkToOutside := filepath.Join(dataDir, "link_to_outside")
-	if err := os.Symlink(outsideDir, symlinkToOutside); err != nil {
-		t.Fatalf("failed to create symlink to outside dir: %v", err)
-	}
-
-	// This should be rejected
-	if server.isPathSafe(symlinkToOutside) {
-		t.Errorf("isPathSafe(%q) = true, want false - symlink to outside directory should be rejected", symlinkToOutside)
-	}
-
-	// Create a symlink inside data pointing to another directory inside data
-	symlinkToInside := filepath.Join(dataDir, "link_to_inside")
-	if err := os.Symlink(insideSubdir, symlinkToInside); err != nil {
-		t.Fatalf("failed to create symlink to inside dir: %v", err)
-	}
-
-	// This should be allowed
-	if !server.isPathSafe(symlinkToInside) {
-		t.Errorf("isPathSafe(%q) = false, want true - symlink to inside directory should be safe", symlinkToInside)
-	}
-}
-
-// TestIsPathSafe_MultiLevelSymlink tests nested/chained symlinks.
-// Creates: data/link1 -> data/link2 -> outside/secret.txt
-func TestIsPathSafe_MultiLevelSymlink(t *testing.T) {
-	tempDir := t.TempDir()
-	dataDir := filepath.Join(tempDir, "data")
-	outsideDir := filepath.Join(tempDir, "outside")
-	secretFile := filepath.Join(outsideDir, "secret.txt")
-
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		t.Fatalf("failed to create data dir: %v", err)
-	}
-	if err := os.MkdirAll(outsideDir, 0755); err != nil {
-		t.Fatalf("failed to create outside dir: %v", err)
-	}
 	if err := os.WriteFile(secretFile, []byte("sensitive"), 0644); err != nil {
 		t.Fatalf("failed to create secret file: %v", err)
 	}
 
-	server := NewServer(dataDir)
-
-	// Create a chain of symlinks: link2 -> outside, link1 -> link2
-	link2 := filepath.Join(dataDir, "link2")
-	link1 := filepath.Join(dataDir, "link1")
-
-	if err := os.Symlink(secretFile, link2); err != nil {
-		t.Fatalf("failed to create link2: %v", err)
-	}
-	if err := os.Symlink(link2, link1); err != nil {
-		t.Fatalf("failed to create link1: %v", err)
+	// Path traversal attempts should all be rejected
+	traversalAttempts := []string{
+		".." + string(filepath.Separator) + "outside",
+		"..",
+		"../outside/secret.txt",
 	}
 
-	// Both symlinks should be rejected as they ultimately resolve to outside
-	if server.isPathSafe(link2) {
-		t.Errorf("isPathSafe(%q) = true, want false - symlink chain to outside should be rejected", link2)
-	}
-	if server.isPathSafe(link1) {
-		t.Errorf("isPathSafe(%q) = true, want false - nested symlink to outside should be rejected", link1)
-	}
-
-	// Test safe chain: data/link4 -> data/link3 -> data/realfile.txt
-	realFile := filepath.Join(dataDir, "realfile.txt")
-	if err := os.WriteFile(realFile, []byte("safe content"), 0644); err != nil {
-		t.Fatalf("failed to create real file: %v", err)
+	for _, attempt := range traversalAttempts {
+		_, ok := isSafeRelativePath(server.dataDir, attempt)
+		if ok {
+			t.Errorf("isSafeRelativePath(%q) = true, want false - path traversal should be rejected", attempt)
+		}
 	}
 
-	link3 := filepath.Join(dataDir, "link3")
-	link4 := filepath.Join(dataDir, "link4")
+	// Note: "...." is actually a valid filename (just dots), not a path traversal
+	// filepath.Join(dataDir, "....") would create a file named "...." inside dataDir
+}
 
-	if err := os.Symlink(realFile, link3); err != nil {
-		t.Fatalf("failed to create link3: %v", err)
-	}
-	if err := os.Symlink(link3, link4); err != nil {
-		t.Fatalf("failed to create link4: %v", err)
+// TestNewServer_AbsolutePath tests that NewServer converts dataDir to absolute path.
+func TestNewServer_AbsolutePath(t *testing.T) {
+	tempDir := t.TempDir()
+	dataDir := filepath.Join(tempDir, "data")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		t.Fatalf("failed to create data dir: %v", err)
 	}
 
-	// Safe chain should be allowed
-	if !server.isPathSafe(link3) {
-		t.Errorf("isPathSafe(%q) = false, want true - symlink to inside file should be safe", link3)
+	server, err := NewServer(dataDir)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
 	}
-	if !server.isPathSafe(link4) {
-		t.Errorf("isPathSafe(%q) = false, want true - nested symlink staying inside should be safe", link4)
+
+	// Server's dataDir should be absolute
+	if !filepath.IsAbs(server.dataDir) {
+		t.Errorf("server.dataDir = %q, want absolute path", server.dataDir)
 	}
 }
