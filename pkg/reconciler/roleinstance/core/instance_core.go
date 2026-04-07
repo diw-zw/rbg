@@ -23,6 +23,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 	kubecontroller "k8s.io/kubernetes/pkg/controller"
 
 	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
@@ -197,7 +198,14 @@ func newComponentPodGroup(component *workloadsv1alpha2.RoleInstanceComponent, po
 	desiredReplicas := *component.Size
 	var existIDs, toDeleteIDs, toScaleIDs = sets.New[int32](), sets.New[int32](), sets.New[int32]()
 	for _, pod := range pods {
-		existIDs.Insert(instanceutil.GetPodComponentID(pod))
+		componentID := instanceutil.GetPodComponentID(pod)
+		// Skip pods with invalid component IDs (-1 indicates parse failure)
+		// This prevents malformed labels/names from causing ID collisions
+		if componentID == -1 {
+			klog.Warningf("Pod %s has invalid component ID (label or name parsing failed), skipping", pod.Name)
+			continue
+		}
+		existIDs.Insert(componentID)
 	}
 	for id := range existIDs {
 		if id >= desiredReplicas {
@@ -205,11 +213,12 @@ func newComponentPodGroup(component *workloadsv1alpha2.RoleInstanceComponent, po
 		}
 	}
 	var toDeletePods []*v1.Pod
-	if toDeleteIDs.Len() > 0 {
-		for _, pod := range pods {
-			if toDeleteIDs.Has(instanceutil.GetPodComponentID(pod)) {
-				toDeletePods = append(toDeletePods, pod)
-			}
+	for _, pod := range pods {
+		componentID := instanceutil.GetPodComponentID(pod)
+		// Delete pods with invalid component IDs (malformed labels/names)
+		// Also delete pods with IDs exceeding desired replicas
+		if componentID == -1 || toDeleteIDs.Has(componentID) {
+			toDeletePods = append(toDeletePods, pod)
 		}
 	}
 	for i := 0; i < int(desiredReplicas); i++ {
