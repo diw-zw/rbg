@@ -53,14 +53,14 @@ kubectl rbg llm chat my-qwen --prompt "Hello, how are you?"
 For production deployments, use the AI Configurator to generate optimized configurations:
 
 ```bash
-kubectl rbg llm generate --model QWEN3_32B --system h200_sxm --total-gpus 8 \
+kubectl rbg llm generate --model Qwen/Qwen3.5-9B --system h200_sxm --total-gpus 8 \
   --isl 4000 --osl 1000 --ttft 1000 --tpot 10
 ```
 
 Then deploy using the generated YAML:
 
 ```bash
-kubectl apply -f /tmp/rbg-llm-generate-output/qwen3-32b-sglang-disagg.yaml
+kubectl apply -f /tmp/rbg-llm-generate-output/qwen-qwen3-5-9b-sglang-disagg.yaml
 ```
 
 ## Commands
@@ -279,11 +279,11 @@ kubectl rbg llm generate [flags]
 
 ```bash
 # Generate configuration with TTFT and TPOT targets
-kubectl rbg llm generate --model QWEN3_32B --system h200_sxm --total-gpus 8 \
+kubectl rbg llm generate --model Qwen/Qwen3.5-9B --system h200_sxm --total-gpus 8 \
   --isl 4000 --osl 1000 --ttft 1000 --tpot 10
 
 # Generate with request latency target
-kubectl rbg llm generate --model LLAMA3_70B --system h100_sxm --total-gpus 16 \
+kubectl rbg llm generate --model meta-llama/Llama-3-70B --system h100_sxm --total-gpus 16 \
   --isl 8192 --osl 2048 --request-latency 5000
 ```
 
