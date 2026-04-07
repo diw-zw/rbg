@@ -42,13 +42,17 @@ type Server struct {
 }
 
 // NewServer creates a new HTTP server instance.
-func NewServer(dataDir string) *Server {
+func NewServer(dataDir string) (*Server, error) {
+	baseAbs, err := filepath.Abs(dataDir)
+	if err != nil {
+		return nil, err
+	}
 	s := &Server{
-		dataDir: dataDir,
+		dataDir: baseAbs,
 		mux:     http.NewServeMux(),
 	}
 	s.registerRoutes()
-	return s
+	return s, nil
 }
 
 // registerRoutes sets up all HTTP routes.
@@ -100,12 +104,6 @@ func (s *Server) handleExperimentRoutes(w http.ResponseWriter, r *http.Request) 
 	}
 
 	experimentName := parts[0]
-
-	// Validate experiment name to prevent path traversal
-	if !isValidName(experimentName) {
-		s.writeError(w, http.StatusBadRequest, "Invalid experiment name")
-		return
-	}
 
 	if len(parts) == 1 {
 		// GET /api/experiments/{name}
@@ -177,9 +175,12 @@ func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request, experim
 		return
 	}
 
-	// Validate inputs to prevent path traversal
-	if !isValidName(experimentName) || !isValidName(fileName) {
-		s.writeError(w, http.StatusBadRequest, "Invalid experiment name or filename")
+	if strings.Contains(experimentName, "/") || strings.Contains(experimentName, "\\") || strings.Contains(experimentName, "..") {
+		s.writeError(w, http.StatusBadRequest, "Invalid experiment name")
+		return
+	}
+	if strings.Contains(fileName, "/") || strings.Contains(fileName, "\\") || strings.Contains(fileName, "..") {
+		s.writeError(w, http.StatusBadRequest, "Invalid result filename")
 		return
 	}
 
@@ -194,10 +195,17 @@ func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request, experim
 		return
 	}
 
-	filePath := filepath.Join(s.dataDir, experimentName, fileName)
+	// Local safety check: validate path is within dataDir
+	// This provides explicit validation that static analysis tools can recognize
+	expDir, ok := isSafeRelativePath(s.dataDir, experimentName)
+	if !ok {
+		s.writeError(w, http.StatusForbidden, "Access denied")
+		return
+	}
 
-	// Security check: ensure the path is within dataDir
-	if !s.isPathSafe(filePath) {
+	// Validate fileName is safe and construct the final file path
+	filePath, ok := isSafeRelativePath(expDir, fileName)
+	if !ok {
 		s.writeError(w, http.StatusForbidden, "Access denied")
 		return
 	}
@@ -230,10 +238,12 @@ func (s *Server) handleGetImage(w http.ResponseWriter, r *http.Request, experime
 		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-
-	// Validate inputs to prevent path traversal
-	if !isValidName(experimentName) || !isValidName(fileName) {
-		s.writeError(w, http.StatusBadRequest, "Invalid experiment name or filename")
+	if strings.Contains(experimentName, "/") || strings.Contains(experimentName, "\\") || strings.Contains(experimentName, "..") {
+		s.writeError(w, http.StatusBadRequest, "Invalid experiment name")
+		return
+	}
+	if strings.Contains(fileName, "/") || strings.Contains(fileName, "\\") || strings.Contains(fileName, "..") {
+		s.writeError(w, http.StatusBadRequest, "Invalid result filename")
 		return
 	}
 
@@ -247,10 +257,17 @@ func (s *Server) handleGetImage(w http.ResponseWriter, r *http.Request, experime
 		return
 	}
 
-	filePath := filepath.Join(s.dataDir, experimentName, fileName)
+	// Local safety check: validate path is within dataDir
+	// This provides explicit validation that static analysis tools can recognize
+	expDir, ok := isSafeRelativePath(s.dataDir, experimentName)
+	if !ok {
+		s.writeError(w, http.StatusForbidden, "Access denied")
+		return
+	}
 
-	// Security check
-	if !s.isPathSafe(filePath) {
+	// Validate fileName is safe and construct the final file path
+	filePath, ok := isSafeRelativePath(expDir, fileName)
+	if !ok {
 		s.writeError(w, http.StatusForbidden, "Access denied")
 		return
 	}
@@ -401,18 +418,35 @@ func (s *Server) listExperiments() ([]Experiment, error) {
 
 // getExperiment returns details of a specific experiment.
 func (s *Server) getExperiment(name string) (*Experiment, error) {
-	// Validate name to prevent path traversal
-	if !isValidName(name) {
+	if strings.Contains(name, "/") || strings.Contains(name, "\\") || strings.Contains(name, "..") {
 		return nil, os.ErrNotExist
 	}
-
-	expDir := filepath.Join(s.dataDir, name)
-
-	// Security check: ensure the path is within dataDir
-	if !s.isPathSafe(expDir) {
+	// Resolve symlinks for both the base directory and the experiment directory
+	// before checking containment, so a symlink under s.dataDir cannot escape it.
+	baseDir, err := filepath.EvalSymlinks(s.dataDir)
+	if err != nil {
+		return nil, err
+	}
+	baseDir, err = filepath.Abs(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	expDirJoined := filepath.Join(s.dataDir, name)
+	expDir, err := filepath.EvalSymlinks(expDirJoined)
+	if err != nil {
+		return nil, err
+	}
+	expDir, err = filepath.Abs(expDir)
+	if err != nil {
+		return nil, err
+	}
+	relPath, err := filepath.Rel(baseDir, expDir)
+	if err != nil {
+		return nil, err
+	}
+	if relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
 		return nil, os.ErrNotExist
 	}
-
 	info, err := os.Stat(expDir)
 	if err != nil {
 		return nil, err
@@ -460,15 +494,14 @@ func (s *Server) getExperiment(name string) (*Experiment, error) {
 
 // getResultSummaries returns summaries of all result files in an experiment.
 func (s *Server) getResultSummaries(experimentName string) ([]ResultSummary, error) {
-	// Validate name to prevent path traversal
-	if !isValidName(experimentName) {
+	if strings.Contains(experimentName, "/") || strings.Contains(experimentName, "\\") || strings.Contains(experimentName, "..") {
 		return nil, os.ErrNotExist
 	}
 
-	expDir := filepath.Join(s.dataDir, experimentName)
-
-	// Security check: ensure the path is within dataDir
-	if !s.isPathSafe(expDir) {
+	// Local safety check: validate path is within dataDir
+	// This provides explicit validation that static analysis tools can recognize
+	expDir, ok := isSafeRelativePath(s.dataDir, experimentName)
+	if !ok {
 		return nil, os.ErrNotExist
 	}
 
@@ -551,64 +584,58 @@ func isValidName(name string) bool {
 	return true
 }
 
-// isPathSafe checks if the given path is within the data directory.
-// It resolves symlinks before checking containment to prevent symlink-based path traversal attacks.
-func (s *Server) isPathSafe(path string) bool {
-	// Clean the path to resolve .. and . segments
-	cleanPath := filepath.Clean(path)
-
-	// Get absolute paths
-	absPath, err := filepath.Abs(cleanPath)
-	if err != nil {
-		return false
-	}
-	absDataDir, err := filepath.Abs(s.dataDir)
-	if err != nil {
-		return false
+// isSafeRelativePath validates that subpath is safe relative to baseDir and returns the absolute path.
+// It checks that the joined and normalized path is still within baseDir.
+// This provides a local, explicit safety check that static analysis tools can recognize.
+func isSafeRelativePath(absBaseDir, subpath string) (string, bool) {
+	// First validate the subpath contains only safe characters
+	if !isValidName(subpath) {
+		return "", false
 	}
 
-	// Resolve the data directory (must exist)
-	resolvedDataDir, err := filepath.EvalSymlinks(absDataDir)
+	// Join and clean the path
+	joined := filepath.Join(absBaseDir, subpath)
+	absPath, err := filepath.Abs(joined)
 	if err != nil {
-		return false
+		return "", false
 	}
-	dataDirPrefix := resolvedDataDir + string(filepath.Separator)
 
-	// Check if the path exists
-	_, err = os.Stat(absPath)
-	if err == nil {
-		// Path exists - fully resolve it and check containment
-		resolvedPath, err := filepath.EvalSymlinks(absPath)
+	// Resolve symlinks for both base dir and target path
+	// This prevents symlink-based path traversal attacks
+	evalBaseDir, err := filepath.EvalSymlinks(absBaseDir)
+	if err != nil {
+		return "", false
+	}
+
+	// For the target path, we need to handle the case where it may not exist yet
+	// Try to evaluate symlinks, but if the path doesn't exist, we'll validate
+	// against the parent directory
+	evalPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		// Path doesn't exist - validate against base dir
+		// Use filepath.Rel to ensure the path is relative to base dir
+		relPath, err := filepath.Rel(absBaseDir, absPath)
 		if err != nil {
-			return false
+			return "", false
 		}
-		return strings.HasPrefix(resolvedPath+string(filepath.Separator), dataDirPrefix)
+		// Check if relative path escapes base dir
+		if strings.HasPrefix(relPath, "..") || relPath == ".." {
+			return "", false
+		}
+		return absPath, true
 	}
 
-	// Path doesn't exist - check that the nearest existing ancestor is within dataDir
-	// We can only verify the safety of existing directories; non-existent portions
-	// will be validated when actually created
-	current := filepath.Dir(absPath)
-	for {
-		// Check if current directory exists
-		_, err := os.Stat(current)
-		if err == nil {
-			// Found an existing ancestor - resolve it and verify it's within dataDir
-			resolvedCurrent, err := filepath.EvalSymlinks(current)
-			if err != nil {
-				return false
-			}
-			return strings.HasPrefix(resolvedCurrent+string(filepath.Separator), dataDirPrefix)
-		}
-
-		// Current doesn't exist, go to parent
-		parent := filepath.Dir(current)
-		if parent == current {
-			// Reached root without finding any existing directory
-			return false
-		}
-		current = parent
+	// Path exists - verify it's within the resolved base dir
+	relPath, err := filepath.Rel(evalBaseDir, evalPath)
+	if err != nil {
+		return "", false
 	}
+	// Check if relative path escapes base dir
+	if strings.HasPrefix(relPath, "..") || relPath == ".." {
+		return "", false
+	}
+
+	return evalPath, true
 }
 
 // writeJSON writes a JSON response.

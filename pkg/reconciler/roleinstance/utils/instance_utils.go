@@ -168,15 +168,27 @@ func GetPodComponentName(pod *v1.Pod) string {
 	return list[len(list)-2]
 }
 
+// GetPodComponentID extracts the component ID from pod labels or name.
+// Returns -1 if parsing fails, as -1 is not a valid replica index (replicas start from 0).
+// This prevents parse errors from masquerading as valid component ID 0.
 func GetPodComponentID(pod *v1.Pod) int32 {
 	componentId := pod.Labels[constants.ComponentIDLabelKey]
 	if len(componentId) != 0 {
-		id, _ := strconv.Atoi(componentId)
+		id, err := strconv.ParseInt(componentId, 10, 32)
+		if err != nil {
+			return -1
+		}
 		return int32(id)
 	}
 	list := strings.Split(pod.Name, "-")
+	if len(list) == 0 {
+		return -1
+	}
 	componentId = list[len(list)-1]
-	id, _ := strconv.Atoi(componentId)
+	id, err := strconv.ParseInt(componentId, 10, 32)
+	if err != nil {
+		return -1
+	}
 	return int32(id)
 }
 

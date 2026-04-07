@@ -46,7 +46,10 @@ func main() {
 	}
 
 	// Create server
-	server := NewServer(dataDir)
+	server, err := NewServer(dataDir)
+	if err != nil {
+		log.Fatalf("Failed to create server: %v", err)
+	}
 
 	// Setup HTTP server
 	addr := fmt.Sprintf(":%d", port)
