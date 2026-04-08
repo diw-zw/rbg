@@ -25,7 +25,6 @@ import (
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/klog/v2"
@@ -74,12 +73,13 @@ type RunParams struct {
 
 // runContext holds the fully resolved artifacts produced by resolveRunContext.
 type runContext struct {
-	PodTemplate   *corev1.PodTemplateSpec
-	EngineType    string
-	ModeName      string
-	ResolvedPort  int32
-	StoragePlugin storageplugin.Plugin
-	StorageName   string
+	PodTemplate     *corev1.PodTemplateSpec
+	EngineType      string
+	ModeName        string
+	ResolvedPort    int32
+	StoragePlugin   storageplugin.Plugin
+	StorageName     string
+	DistributedSize int32 // Multi-node deployment size, <= 1 means standalone
 }
 
 // resolveRunContext performs all pure data resolution for the run command:
@@ -137,55 +137,46 @@ func resolveRunContext(name, modelID string, p RunParams, userCfg *cliconfig.Con
 		modelPath = "/model/" + sanitizeModelID(modelID) + "/" + sanitizeModelID(p.Revision)
 	}
 
-	// 4. Generate base pod template and validate
-	podTemplate, err := enginePlugin.GenerateTemplate(name, modelID, modelPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate engine template: %w", err)
+	// 4. Extract distributed size from mode config
+	distributedSize := int32(0)
+	if modeCfg.Distributed != nil && modeCfg.Distributed.Size > 1 {
+		distributedSize = modeCfg.Distributed.Size
 	}
-	if len(podTemplate.Spec.Containers) == 0 {
-		return nil, fmt.Errorf("engine %q generated template with no containers", engineType)
-	}
-	container := &podTemplate.Spec.Containers[0]
 
-	// 5. Overlay mode config
-	if modeCfg.Image != "" {
-		container.Image = modeCfg.Image
-	}
-	container.Args = append(container.Args, modeCfg.Args...)
-	container.Args = append(container.Args, p.ArgsList...)
-
-	for _, e := range modeCfg.Env {
-		container.Env = append(container.Env, corev1.EnvVar{Name: e.Name, Value: e.Value})
-	}
+	// 5. Build environment variables
+	envVars := make([]corev1.EnvVar, len(modeCfg.Env))
+	copy(envVars, modeCfg.Env)
 	for _, ev := range p.EnvVars {
 		parts := strings.SplitN(ev, "=", 2)
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("invalid environment variable format: %q, expected KEY=VALUE", ev)
 		}
-		container.Env = append(container.Env, corev1.EnvVar{Name: parts[0], Value: parts[1]})
+		envVars = append(envVars, corev1.EnvVar{Name: parts[0], Value: parts[1]})
 	}
 
-	// 6. Apply resource overrides
-	effGPU := modeCfg.Resources.GPU
-	effCPU := modeCfg.Resources.CPU
-	effMemory := modeCfg.Resources.Memory
-	if effGPU > 0 {
-		if container.Resources.Limits == nil {
-			container.Resources.Limits = make(corev1.ResourceList)
-		}
-		container.Resources.Limits[corev1.ResourceName("nvidia.com/gpu")] = resource.MustParse(fmt.Sprintf("%d", effGPU))
+	// 6. Build resource requirements from ResourceList
+	var resources corev1.ResourceRequirements
+	if len(modeCfg.Resources) > 0 {
+		resources.Requests = modeCfg.Resources
+		resources.Limits = modeCfg.Resources
 	}
-	if effCPU > 0 {
-		if container.Resources.Requests == nil {
-			container.Resources.Requests = make(corev1.ResourceList)
-		}
-		container.Resources.Requests[corev1.ResourceCPU] = resource.MustParse(fmt.Sprintf("%d", effCPU))
+
+	// 7. Generate pod template using engine plugin with all options
+	podTemplate, err := enginePlugin.GenerateTemplate(engineplugin.GenerateOptions{
+		Name:            name,
+		ModelID:         modelID,
+		ModelPath:       modelPath,
+		Image:           modeCfg.Image,
+		Args:            append(modeCfg.Args, p.ArgsList...),
+		Env:             envVars,
+		Resources:       resources,
+		DistributedSize: distributedSize,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate engine template: %w", err)
 	}
-	if effMemory != "" {
-		if container.Resources.Requests == nil {
-			container.Resources.Requests = make(corev1.ResourceList)
-		}
-		container.Resources.Requests[corev1.ResourceMemory] = resource.MustParse(effMemory)
+	if len(podTemplate.Spec.Containers) == 0 {
+		return nil, fmt.Errorf("engine %q generated template with no containers", engineType)
 	}
 
 	if podTemplate.ObjectMeta.Labels == nil {
@@ -202,12 +193,13 @@ func resolveRunContext(name, modelID string, p RunParams, userCfg *cliconfig.Con
 	}
 
 	return &runContext{
-		PodTemplate:   podTemplate,
-		EngineType:    engineType,
-		ModeName:      modeCfg.Name,
-		ResolvedPort:  resolvedPort,
-		StoragePlugin: storagePlugin,
-		StorageName:   storageName,
+		PodTemplate:     podTemplate,
+		EngineType:      engineType,
+		ModeName:        modeCfg.Name,
+		ResolvedPort:    resolvedPort,
+		StoragePlugin:   storagePlugin,
+		StorageName:     storageName,
+		DistributedSize: distributedSize,
 	}, nil
 }
 
@@ -234,6 +226,50 @@ func generateRBG(name, namespace, modelID, revision string, replicas int32, rctx
 	// Set standard labels on pod template
 	rctx.PodTemplate.ObjectMeta.Labels[llmmeta.RunCommandSourceLabelKey] = llmmeta.RunCommandSourceLabelValue
 
+	// Build role spec based on deployment mode (standalone or distributed)
+	// Note: Workload field is deprecated and should not be set.
+	// The controller will automatically use the appropriate workload type
+	// based on the pattern (StandalonePattern -> RoleInstanceSet, LeaderWorkerPattern -> LeaderWorkerSet).
+	var roleSpec workloadsv1alpha2.RoleSpec
+	if rctx.DistributedSize > 1 {
+		// Multi-node deployment using LeaderWorkerPattern
+		roleSpec = workloadsv1alpha2.RoleSpec{
+			Name:     "inference",
+			Replicas: &replicas,
+			Pattern: workloadsv1alpha2.Pattern{
+				LeaderWorkerPattern: &workloadsv1alpha2.LeaderWorkerPattern{
+					Size: &rctx.DistributedSize,
+					TemplateSource: workloadsv1alpha2.TemplateSource{
+						Template: rctx.PodTemplate,
+					},
+				},
+			},
+			// TODO: Remove workload field after PR #261
+			Workload: workloadsv1alpha2.WorkloadSpec{
+				APIVersion: "workloads.x-k8s.io/v1alpha2",
+				Kind:       "RoleInstanceSet",
+			},
+		}
+	} else {
+		// Single-node deployment using StandalonePattern
+		roleSpec = workloadsv1alpha2.RoleSpec{
+			Name:     "inference",
+			Replicas: &replicas,
+			Pattern: workloadsv1alpha2.Pattern{
+				StandalonePattern: &workloadsv1alpha2.StandalonePattern{
+					TemplateSource: workloadsv1alpha2.TemplateSource{
+						Template: rctx.PodTemplate,
+					},
+				},
+			},
+			// TODO: Remove workload field after PR #261
+			Workload: workloadsv1alpha2.WorkloadSpec{
+				APIVersion: "workloads.x-k8s.io/v1alpha2",
+				Kind:       "RoleInstanceSet",
+			},
+		}
+	}
+
 	// Create the RoleBasedGroup
 	return &workloadsv1alpha2.RoleBasedGroup{
 		TypeMeta: metav1.TypeMeta{
@@ -251,23 +287,7 @@ func generateRBG(name, namespace, modelID, revision string, replicas int32, rctx
 			},
 		},
 		Spec: workloadsv1alpha2.RoleBasedGroupSpec{
-			Roles: []workloadsv1alpha2.RoleSpec{
-				{
-					Name:     "inference",
-					Replicas: &replicas,
-					Pattern: workloadsv1alpha2.Pattern{
-						StandalonePattern: &workloadsv1alpha2.StandalonePattern{
-							TemplateSource: workloadsv1alpha2.TemplateSource{
-								Template: rctx.PodTemplate,
-							},
-						},
-					},
-					Workload: workloadsv1alpha2.WorkloadSpec{
-						APIVersion: "workloads.x-k8s.io/v1alpha2",
-						Kind:       "RoleInstanceSet",
-					},
-				},
-			},
+			Roles: []workloadsv1alpha2.RoleSpec{roleSpec},
 		},
 	}
 }

@@ -60,7 +60,11 @@ func TestVLLMEngine_GenerateTemplate(t *testing.T) {
 	v := &VLLMEngine{}
 	require.NoError(t, v.Init(map[string]interface{}{}))
 
-	tpl, err := v.GenerateTemplate("mymodel", "org/model", "/models/mymodel")
+	tpl, err := v.GenerateTemplate(GenerateOptions{
+		Name:      "mymodel",
+		ModelID:   "org/model",
+		ModelPath: "/models/mymodel",
+	})
 	require.NoError(t, err)
 	require.NotNil(t, tpl)
 	require.Len(t, tpl.Spec.Containers, 1)

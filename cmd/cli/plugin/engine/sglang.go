@@ -62,33 +62,59 @@ func (s *SGLangEngine) Init(config map[string]interface{}) error {
 }
 
 // GenerateTemplate generates a pod template for running SGLang
-func (s *SGLangEngine) GenerateTemplate(name string, modelID string, modelPath string) (*corev1.PodTemplateSpec, error) {
+func (s *SGLangEngine) GenerateTemplate(opts GenerateOptions) (*corev1.PodTemplateSpec, error) {
+	// Use override image if provided, otherwise use default
+	image := s.Image
+	if opts.Image != "" {
+		image = opts.Image
+	}
+
+	// Build base args
+	args := []string{
+		"--model-path",
+		opts.ModelPath,
+		"--served-model-name",
+		opts.Name,
+	}
+
+	// Add distributed deployment args for multi-node setup
+	if opts.DistributedSize > 1 {
+		args = append(args,
+			"--dist-init-addr=$(RBG_LWP_LEADER_ADDRESS):6379",
+			"--nnodes=$(RBG_LWP_GROUP_SIZE)",
+			"--node-rank=$(RBG_LWP_WORKER_INDEX)",
+		)
+	}
+
+	// Add user-provided args
+	args = append(args, opts.Args...)
+
+	// Build env vars
+	env := []corev1.EnvVar{
+		{
+			Name:  "SGLANG_MODEL_PATH",
+			Value: opts.ModelPath,
+		},
+	}
+	env = append(env, opts.Env...)
+
 	return &corev1.PodTemplateSpec{
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
 					Name:            "sglang",
-					Image:           s.Image,
+					Image:           image,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Command:         []string{"python", "-m", "sglang.launch_server"},
-					Args: []string{
-						"--model-path",
-						modelPath,
-						"--model-name",
-						name,
-					},
+					Args:            args,
 					Ports: []corev1.ContainerPort{
 						{
 							Name:          "http",
 							ContainerPort: s.Port,
 						},
 					},
-					Env: []corev1.EnvVar{
-						{
-							Name:  "SGLANG_MODEL_PATH",
-							Value: modelPath,
-						},
-					},
+					Env:       env,
+					Resources: opts.Resources,
 				},
 			},
 		},

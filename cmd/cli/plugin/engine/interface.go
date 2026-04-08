@@ -23,6 +23,18 @@ import (
 	"sigs.k8s.io/rbgs/cmd/cli/plugin/util"
 )
 
+// GenerateOptions contains all information needed to generate a pod template.
+type GenerateOptions struct {
+	Name            string
+	ModelID         string
+	ModelPath       string
+	Image           string          // Override image (empty to use default)
+	Args            []string        // Additional arguments
+	Env             []corev1.EnvVar // Additional environment variables
+	Resources       corev1.ResourceRequirements
+	DistributedSize int32 // Multi-node deployment size, <=1 means standalone
+}
+
 // Plugin defines the interface for inference engines.
 type Plugin interface {
 	Name() string
@@ -33,8 +45,12 @@ type Plugin interface {
 	// Init initializes the engine with credentials/config.
 	Init(config map[string]interface{}) error
 
-	// GenerateTemplate generates a PodTemplateSpec used to start the model engine.
-	GenerateTemplate(name string, modelID string, modelPath string) (*corev1.PodTemplateSpec, error)
+	// GenerateTemplate generates a complete PodTemplateSpec for the model engine.
+	// The implementation should handle all engine-specific logic including:
+	// - Container configuration (image, command, args)
+	// - Port configuration
+	// - Distributed deployment parameters (if DistributedSize > 1)
+	GenerateTemplate(opts GenerateOptions) (*corev1.PodTemplateSpec, error)
 }
 
 // Factory is a constructor for an engine plugin.

@@ -62,26 +62,40 @@ func (v *VLLMEngine) Init(config map[string]interface{}) error {
 }
 
 // GenerateTemplate generates a pod template for running vLLM
-func (v *VLLMEngine) GenerateTemplate(name string, modelID string, modelPath string) (*corev1.PodTemplateSpec, error) {
+func (v *VLLMEngine) GenerateTemplate(opts GenerateOptions) (*corev1.PodTemplateSpec, error) {
+	// Use override image if provided, otherwise use default
+	image := v.Image
+	if opts.Image != "" {
+		image = opts.Image
+	}
+
+	// Build base args
+	args := []string{
+		"--model",
+		opts.ModelPath,
+		"--served-model-name",
+		opts.Name,
+	}
+
+	// Add user-provided args
+	args = append(args, opts.Args...)
+
 	return &corev1.PodTemplateSpec{
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
 					Name:            "vllm",
-					Image:           v.Image,
+					Image:           image,
 					ImagePullPolicy: corev1.PullIfNotPresent,
-					Args: []string{
-						"--model",
-						modelPath,
-						"--served-model-name",
-						name,
-					},
+					Args:            args,
 					Ports: []corev1.ContainerPort{
 						{
 							Name:          "http",
 							ContainerPort: v.Port,
 						},
 					},
+					Env:       opts.Env,
+					Resources: opts.Resources,
 				},
 			},
 		},

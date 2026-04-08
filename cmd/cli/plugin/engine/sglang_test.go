@@ -60,7 +60,11 @@ func TestSGLangEngine_GenerateTemplate(t *testing.T) {
 	s := &SGLangEngine{}
 	require.NoError(t, s.Init(map[string]interface{}{}))
 
-	tpl, err := s.GenerateTemplate("mymodel", "org/model", "/models/mymodel")
+	tpl, err := s.GenerateTemplate(GenerateOptions{
+		Name:      "mymodel",
+		ModelID:   "org/model",
+		ModelPath: "/models/mymodel",
+	})
 	require.NoError(t, err)
 	require.NotNil(t, tpl)
 	require.Len(t, tpl.Spec.Containers, 1)
@@ -82,13 +86,41 @@ func TestSGLangEngine_GenerateTemplate_EnvVar(t *testing.T) {
 	s := &SGLangEngine{}
 	require.NoError(t, s.Init(map[string]interface{}{}))
 
-	tpl, err := s.GenerateTemplate("m", "id", "/path/to/model")
+	tpl, err := s.GenerateTemplate(GenerateOptions{
+		Name:      "m",
+		ModelID:   "id",
+		ModelPath: "/path/to/model",
+	})
 	require.NoError(t, err)
 	envMap := map[string]string{}
 	for _, e := range tpl.Spec.Containers[0].Env {
 		envMap[e.Name] = e.Value
 	}
 	assert.Equal(t, "/path/to/model", envMap["SGLANG_MODEL_PATH"])
+}
+
+func TestSGLangEngine_GenerateTemplate_Distributed(t *testing.T) {
+	s := &SGLangEngine{}
+	require.NoError(t, s.Init(map[string]interface{}{}))
+
+	tpl, err := s.GenerateTemplate(GenerateOptions{
+		Name:            "mymodel",
+		ModelID:         "org/model",
+		ModelPath:       "/models/mymodel",
+		Args:            []string{"--tp-size=2"},
+		DistributedSize: 2,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, tpl)
+	require.Len(t, tpl.Spec.Containers, 1)
+
+	c := tpl.Spec.Containers[0]
+	// Check distributed args are injected
+	assert.Contains(t, c.Args, "--dist-init-addr=$(RBG_LWP_LEADER_ADDRESS):6379")
+	assert.Contains(t, c.Args, "--nnodes=$(RBG_LWP_GROUP_SIZE)")
+	assert.Contains(t, c.Args, "--node-rank=$(RBG_LWP_WORKER_INDEX)")
+	// Check user args are preserved
+	assert.Contains(t, c.Args, "--tp-size=2")
 }
 
 func TestGet_SGLang_InitAndReturn(t *testing.T) {

@@ -199,12 +199,12 @@ func TestResolveRunContext_InvalidEnvVar(t *testing.T) {
 }
 
 func TestResolveRunContext_UnknownModel(t *testing.T) {
-	// Unknown model falls back to wildcard "*" config
-	rctx, err := resolveRunContext("my-svc", "unknown/unknown-model", RunParams{
+	// Unknown model should return error when no wildcard config exists
+	_, err := resolveRunContext("my-svc", "unknown/unknown-model", RunParams{
 		Revision: "main",
 	}, nil)
-	require.NoError(t, err)
-	assert.Equal(t, "vllm", rctx.EngineType)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no configuration found for model")
 }
 
 func TestResolveRunContext_UnknownEngine_Errors(t *testing.T) {
