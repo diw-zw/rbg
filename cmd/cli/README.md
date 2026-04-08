@@ -60,7 +60,7 @@ kubectl rbg llm generate --model Qwen/Qwen3.5-9B --system h200_sxm --total-gpus 
 Then deploy using the generated YAML:
 
 ```bash
-kubectl apply -f /tmp/rbg-llm-generate-output/qwen-qwen3-5-9b-sglang-disagg.yaml
+kubectl apply -f /tmp/rbg-llm-generate-output/qwen3-5-9b-sglang-disagg.yaml
 ```
 
 ## Commands

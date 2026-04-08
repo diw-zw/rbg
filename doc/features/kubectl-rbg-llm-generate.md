@@ -144,24 +144,24 @@ Generating RBG deployment YAMLs...
 ✓ Successfully generated 2 deployment recommendations:
 
 Plan 1: Prefill-Decode Disaggregated Mode
-  File: /tmp/rbg-llm-generate-output/qwen-qwen3-5-9b-sglang-disagg.yaml
+  File: /tmp/rbg-llm-generate-output/qwen3-32b-sglang-disagg.yaml
   Configuration:
     - Prefill Workers: 4 (each using 1 GPU)
     - Decode Workers: 1 (each using 4 GPU)
     - Total GPU Usage: 8
 
 Plan 2: Aggregated Mode
-  File: /tmp/rbg-llm-generate-output/qwen-qwen3-5-9b-sglang-agg.yaml
+  File: /tmp/rbg-llm-generate-output/qwen3-32b-sglang-agg.yaml
   Configuration:
     - Workers: 1 (each using 8 GPU)
     - Total GPU Usage: 8
 
 To deploy, run:
-  kubectl apply -f /tmp/rbg-llm-generate-output/qwen-qwen3-5-9b-sglang-disagg.yaml
+  kubectl apply -f /tmp/rbg-llm-generate-output/qwen3-32b-sglang-disagg.yaml
 or
-  kubectl apply -f /tmp/rbg-llm-generate-output/qwen-qwen3-5-9b-sglang-agg.yaml
+  kubectl apply -f /tmp/rbg-llm-generate-output/qwen3-32b-sglang-agg.yaml
 
-Note: Ensure the 'qwen-qwen3-5-9b' PVC exists in your cluster before deploying.
+Note: Ensure the 'qwen3-32b' PVC exists in your cluster before deploying.
 ```
 
 ## Deployment
@@ -175,7 +175,7 @@ Before deploying the generated YAML:
    apiVersion: v1
    kind: PersistentVolumeClaim
    metadata:
-     name: qwen-qwen3-5-9b
+     name: qwen3-32b
    spec:
      accessModes:
        - ReadOnlyMany
@@ -189,7 +189,7 @@ Before deploying the generated YAML:
 2. **Deploy the recommended configuration**:
 
    ```bash
-   kubectl apply -f /tmp/rbg-llm-generate-output/qwen-qwen3-5-9b-sglang-disagg.yaml
+   kubectl apply -f /tmp/rbg-llm-generate-output/qwen3-32b-sglang-disagg.yaml
    ```
 
 3. **Monitor deployment**:
@@ -216,7 +216,7 @@ Or visit: https://github.com/ai-dynamo/aiconfigurator
 ### No output directory found
 
 ```text
-Error: no output directory found matching pattern: Qwen_Qwen3.5-9B_isl5000_osl1000_ttft1000_tpot10_*
+Error: no output directory found matching pattern: Qwen/Qwen3-32B_isl5000_osl1000_ttft1000_tpot10_*
 ```
 
 **Solution**:

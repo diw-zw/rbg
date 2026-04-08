@@ -21,6 +21,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	cliconfig "sigs.k8s.io/rbgs/cmd/cli/config"
@@ -65,8 +66,10 @@ type modelWithSource struct {
 }
 
 // LoadAllModels loads all available model configurations by merging:
-// 1. User-defined models (from <workspace>/models/*.yaml)
-// 2. Built-in models (embedded models.yaml)
+//  1. User-defined models (from the directory returned by GetModelConfigDir(),
+//     default: ~/.rbg/models, overridable via RBG_MODEL_CONFIG env var;
+//     accepts both .yaml and .yml files)
+//  2. Built-in models (embedded models.yaml)
 //
 // User models are placed before built-in models, so they take precedence during lookup.
 // Duplicate detection and warnings are performed during loading.
@@ -123,7 +126,15 @@ func detectModelConflicts(userModels []modelWithSource, builtinModels []ModelCon
 	}
 
 	// 2. Emit aggregated warnings for models with multiple definitions
-	for modelID, defs := range modelDefinitions {
+	// Sort model IDs for deterministic output order
+	sortedModelIDs := make([]string, 0, len(modelDefinitions))
+	for modelID := range modelDefinitions {
+		sortedModelIDs = append(sortedModelIDs, modelID)
+	}
+	sort.Strings(sortedModelIDs)
+
+	for _, modelID := range sortedModelIDs {
+		defs := modelDefinitions[modelID]
 		if len(defs) <= 1 {
 			continue // Only one definition, no conflict
 		}
@@ -134,9 +145,17 @@ func detectModelConflicts(userModels []modelWithSource, builtinModels []ModelCon
 			fileCount[d.source]++
 		}
 
+		// Sort source files for deterministic output order
+		sortedFiles := make([]string, 0, len(fileCount))
+		for file := range fileCount {
+			sortedFiles = append(sortedFiles, file)
+		}
+		sort.Strings(sortedFiles)
+
 		// Build warning message parts
-		parts := make([]string, 0, len(fileCount))
-		for file, count := range fileCount {
+		parts := make([]string, 0, len(sortedFiles))
+		for _, file := range sortedFiles {
+			count := fileCount[file]
 			if count == 1 {
 				parts = append(parts, fmt.Sprintf("1 in %s", file))
 			} else {
@@ -170,8 +189,20 @@ func loadUserModels() ([]modelWithSource, error) {
 		return nil, nil
 	}
 
-	// Check if directory exists
-	if _, err := os.Stat(modelsDir); os.IsNotExist(err) {
+	envModelsDir, envModelsDirSet := os.LookupEnv("RBG_MODEL_CONFIG")
+	// Check if directory exists and is actually a directory
+	info, err := os.Stat(modelsDir)
+	if os.IsNotExist(err) {
+		if envModelsDirSet && envModelsDir != "" && envModelsDir == modelsDir {
+			fmt.Fprintf(os.Stderr, "Warning: model config directory %q from RBG_MODEL_CONFIG does not exist, skipping\n", modelsDir)
+		}
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat models directory: %w", err)
+	}
+	if !info.IsDir() {
+		fmt.Fprintf(os.Stderr, "Warning: models path %q is not a directory, skipping\n", modelsDir)
 		return nil, nil
 	}
 
@@ -181,15 +212,21 @@ func loadUserModels() ([]modelWithSource, error) {
 		return nil, fmt.Errorf("failed to read models directory: %w", err)
 	}
 
+	// Sort entries by filename for deterministic order
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name() < entries[j].Name()
+	})
+
 	var allModels []modelWithSource
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 
-		// Only process .yaml and .yml files
+		// Only process .yaml and .yml files (case-insensitive)
 		name := entry.Name()
-		if !(strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")) {
+		lowerName := strings.ToLower(name)
+		if !(strings.HasSuffix(lowerName, ".yaml") || strings.HasSuffix(lowerName, ".yml")) {
 			continue
 		}
 
