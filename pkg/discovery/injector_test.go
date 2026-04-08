@@ -405,7 +405,7 @@ func TestDefaultInjector_InjectConfig(t *testing.T) {
 			rbg: func() *workloadsv1alpha2.RoleBasedGroup {
 				rbg := wrappersv2.BuildBasicRoleBasedGroup("test-rbg", "default").Obj()
 				rbg.SetDiscoveryConfigMode(constants.RefineDiscoveryConfigMode)
-				rbg.Spec.Roles[0].Workload = workloadsv1alpha2.WorkloadSpec{
+				rbg.Spec.Roles[0].Workload = &workloadsv1alpha2.WorkloadSpec{
 					APIVersion: "apps/v1",
 					Kind:       "Deployment",
 				}
@@ -491,6 +491,10 @@ func TestDefaultInjector_InjectEnv(t *testing.T) {
 			role: &workloadsv1alpha2.RoleSpec{
 				Name:     "worker",
 				Replicas: ptr.To(int32(3)),
+				Workload: &workloadsv1alpha2.WorkloadSpec{
+					APIVersion: "apps/v1",
+					Kind:       "StatefulSet",
+				},
 			},
 			// Container without the expected environment variables
 			initialPodSpec: &corev1.PodTemplateSpec{
@@ -543,6 +547,10 @@ func TestDefaultInjector_InjectEnv(t *testing.T) {
 			role: &workloadsv1alpha2.RoleSpec{
 				Name:     "worker",
 				Replicas: ptr.To(int32(3)),
+				Workload: &workloadsv1alpha2.WorkloadSpec{
+					APIVersion: "apps/v1",
+					Kind:       "StatefulSet",
+				},
 			},
 			// Container with existing environment variables
 			initialPodSpec: &corev1.PodTemplateSpec{
@@ -628,7 +636,7 @@ func TestDefaultInjector_InjectLeaderWorkerSetEnv(t *testing.T) {
 	}
 	role := &workloadsv1alpha2.RoleSpec{
 		Name: "integrate",
-		Workload: workloadsv1alpha2.WorkloadSpec{
+		Workload: &workloadsv1alpha2.WorkloadSpec{
 			APIVersion: "workloads.x-k8s.io/v1alpha2",
 			Kind:       "RoleInstanceSet",
 		},

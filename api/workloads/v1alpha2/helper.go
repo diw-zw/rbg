@@ -269,6 +269,23 @@ func (r *RoleSpec) HasTemplate() bool {
 	return r.GetTemplate() != nil || r.GetTemplateRef() != nil
 }
 
+// defaultWorkload is the default WorkloadSpec for roles.
+// This matches the +kubebuilder:default marker on the Workload field.
+var defaultWorkload = WorkloadSpec{
+	APIVersion: "workloads.x-k8s.io/v1alpha2",
+	Kind:       "RoleInstanceSet",
+}
+
+// GetWorkload returns the WorkloadSpec for this role.
+// If Workload is nil, it returns the default workload spec.
+// Deprecated: Use pattern-based approach instead (StandalonePattern, LeaderWorkerPattern).
+func (r *RoleSpec) GetWorkload() *WorkloadSpec {
+	if r.Workload != nil {
+		return r.Workload
+	}
+	return &defaultWorkload
+}
+
 // GetDiscoveryConfigMode returns the discovery config mode from annotations.
 func (rbg *RoleBasedGroup) GetDiscoveryConfigMode() constants.DiscoveryConfigMode {
 	if rbg == nil || rbg.Annotations == nil {
@@ -325,7 +342,7 @@ func IsStatefulRole(role *RoleSpec) bool {
 	if role == nil {
 		return false
 	}
-	switch role.Workload.String() {
+	switch role.GetWorkload().String() {
 	case constants.DeploymentWorkloadType:
 		return false
 	case constants.StatefulSetWorkloadType, constants.LeaderWorkerSetWorkloadType, "":

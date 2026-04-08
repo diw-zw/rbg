@@ -432,7 +432,7 @@ func TestGetPatchAndRestore(t *testing.T) {
 				{
 					Name:     "role-sts",
 					Replicas: ptr.To(int32(1)),
-					Workload: workloadsv1alpha2.WorkloadSpec{
+					Workload: &workloadsv1alpha2.WorkloadSpec{
 						APIVersion: "apps/v1",
 						Kind:       "StatefulSet",
 					},
@@ -461,7 +461,7 @@ func TestGetPatchAndRestore(t *testing.T) {
 				{
 					Name:     "role-lws",
 					Replicas: ptr.To(int32(1)),
-					Workload: workloadsv1alpha2.WorkloadSpec{
+					Workload: &workloadsv1alpha2.WorkloadSpec{
 						APIVersion: "leaderworkerset.x-k8s.io/v1",
 						Kind:       "LeaderWorkerSet",
 					},
@@ -709,7 +709,7 @@ func getRBG() *workloadsv1alpha2.RoleBasedGroup {
 				{
 					Name:     "router",
 					Replicas: ptr.To(int32(3)),
-					Workload: workloadsv1alpha2.WorkloadSpec{
+					Workload: &workloadsv1alpha2.WorkloadSpec{
 						APIVersion: "apps/v1",
 						Kind:       "Deployment",
 					},
@@ -795,7 +795,7 @@ func getRBG() *workloadsv1alpha2.RoleBasedGroup {
 				{
 					Name:     "decode",
 					Replicas: ptr.To(int32(5)),
-					Workload: workloadsv1alpha2.WorkloadSpec{
+					Workload: &workloadsv1alpha2.WorkloadSpec{
 						APIVersion: "apps/v1",
 						Kind:       "StatefulSet",
 					},
@@ -843,7 +843,7 @@ func getRBG() *workloadsv1alpha2.RoleBasedGroup {
 				{
 					Name:     "prefill",
 					Replicas: ptr.To(int32(3)),
-					Workload: workloadsv1alpha2.WorkloadSpec{
+					Workload: &workloadsv1alpha2.WorkloadSpec{
 						APIVersion: "apps/v1",
 						Kind:       "Deployment",
 					},
@@ -970,7 +970,7 @@ func getRBGWithRoleTemplates() *workloadsv1alpha2.RoleBasedGroup {
 							},
 						},
 					},
-					Workload: workloadsv1alpha2.WorkloadSpec{
+					Workload: &workloadsv1alpha2.WorkloadSpec{
 						APIVersion: "apps/v1",
 						Kind:       "StatefulSet",
 					},

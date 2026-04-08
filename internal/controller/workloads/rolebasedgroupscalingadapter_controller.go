@@ -385,7 +385,7 @@ func (r *RoleBasedGroupScalingAdapterReconciler) updateRoleReplicas(
 func (r *RoleBasedGroupScalingAdapterReconciler) extractLabelSelectorDefault(
 	rbg *workloadsv1alpha2.RoleBasedGroup, role *workloadsv1alpha2.RoleSpec,
 ) (string, error) {
-	apiVersion, kind := role.Workload.APIVersion, role.Workload.Kind
+	apiVersion, kind := role.GetWorkload().APIVersion, role.GetWorkload().Kind
 
 	targetGV, err := schema.ParseGroupVersion(apiVersion)
 	if err != nil {

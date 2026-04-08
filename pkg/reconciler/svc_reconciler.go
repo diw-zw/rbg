@@ -139,7 +139,7 @@ func (r *ServiceReconciler) getObjectByKind(
 ) (client.Object, error) {
 	workloadName := rbg.GetWorkloadName(role)
 
-	switch role.Workload.String() {
+	switch role.GetWorkload().String() {
 	case constants.RoleInstanceSetWorkloadType:
 		obj := &workloadsv1alpha2.RoleInstanceSet{}
 		err := r.client.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: rbg.Namespace}, obj)
@@ -149,7 +149,7 @@ func (r *ServiceReconciler) getObjectByKind(
 		err := r.client.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: rbg.Namespace}, obj)
 		return obj, err
 	default:
-		return nil, fmt.Errorf("unsupported workload type: %s", role.Workload.String())
+		return nil, fmt.Errorf("unsupported workload type: %s", role.GetWorkload().String())
 	}
 }
 

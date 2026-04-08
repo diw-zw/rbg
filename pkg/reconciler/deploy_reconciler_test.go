@@ -51,7 +51,7 @@ func TestDeploymentReconciler_Reconciler(t *testing.T) {
 	deployRole := &workloadsv1alpha2.RoleSpec{
 		Name:     "test-role",
 		Replicas: ptr.To(int32(3)),
-		Workload: workloadsv1alpha2.WorkloadSpec{
+		Workload: &workloadsv1alpha2.WorkloadSpec{
 			APIVersion: "apps/v1",
 			Kind:       "Deployment",
 		},
@@ -191,7 +191,7 @@ func TestDeploymentReconciler_CheckWorkloadReady(t *testing.T) {
 	deployRole := &workloadsv1alpha2.RoleSpec{
 		Name:     "test-role",
 		Replicas: &replicas,
-		Workload: workloadsv1alpha2.WorkloadSpec{
+		Workload: &workloadsv1alpha2.WorkloadSpec{
 			APIVersion: "apps/v1",
 			Kind:       "Deployment",
 		},
@@ -309,7 +309,7 @@ func TestDeploymentReconciler_CleanupOrphanedWorkloads(t *testing.T) {
 	deployRole := &workloadsv1alpha2.RoleSpec{
 		Name:     "test-role",
 		Replicas: &replicas,
-		Workload: workloadsv1alpha2.WorkloadSpec{
+		Workload: &workloadsv1alpha2.WorkloadSpec{
 			APIVersion: "apps/v1",
 			Kind:       "Deployment",
 		},
@@ -431,7 +431,7 @@ func TestDeploymentReconciler_RecreateWorkload(t *testing.T) {
 	deployRole := &workloadsv1alpha2.RoleSpec{
 		Name:     "test-role",
 		Replicas: &replicas,
-		Workload: workloadsv1alpha2.WorkloadSpec{
+		Workload: &workloadsv1alpha2.WorkloadSpec{
 			APIVersion: "apps/v1",
 			Kind:       "Deployment",
 		},
@@ -600,7 +600,7 @@ func TestDeploymentReconciler_constructDeployApplyConfiguration(t *testing.T) {
 	deployRole := &workloadsv1alpha2.RoleSpec{
 		Name:     "test-role",
 		Replicas: &replicas,
-		Workload: workloadsv1alpha2.WorkloadSpec{
+		Workload: &workloadsv1alpha2.WorkloadSpec{
 			APIVersion: "apps/v1",
 			Kind:       "Deployment",
 		},
@@ -687,7 +687,7 @@ func TestConstructDeploymentApplyConfiguration_LabelsAndAnnotations(t *testing.T
 	role := &workloadsv1alpha2.RoleSpec{
 		Name:     "test-role",
 		Replicas: ptr.To(int32(3)),
-		Workload: workloadsv1alpha2.WorkloadSpec{
+		Workload: &workloadsv1alpha2.WorkloadSpec{
 			APIVersion: "apps/v1",
 			Kind:       "Deployment",
 		},

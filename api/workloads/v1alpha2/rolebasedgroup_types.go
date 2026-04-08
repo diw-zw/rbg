@@ -199,7 +199,7 @@ type RoleSpec struct {
 	// The underlying workload will use InstanceSet.
 	// +kubebuilder:default={apiVersion:"workloads.x-k8s.io/v1alpha2", kind:"RoleInstanceSet"}
 	// +optional
-	Workload WorkloadSpec `json:"workload,omitempty"`
+	Workload *WorkloadSpec `json:"workload,omitempty"`
 
 	// Pattern defines the deployment pattern for this role (inline).
 	// Either standalonePattern or leaderWorkerPattern can be specified, not both.

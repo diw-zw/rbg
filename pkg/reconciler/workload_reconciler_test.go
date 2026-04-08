@@ -86,7 +86,7 @@ func TestNewWorkloadReconciler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(
 			tt.name, func(t *testing.T) {
-				reconciler, err := NewWorkloadReconciler(tt.workloadType, scheme, fakeClient)
+				reconciler, err := NewWorkloadReconciler(&tt.workloadType, scheme, fakeClient)
 
 				if tt.expectError {
 					if err == nil {

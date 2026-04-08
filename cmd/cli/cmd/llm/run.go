@@ -262,7 +262,7 @@ func generateRBG(name, namespace, modelID, revision string, replicas int32, rctx
 							},
 						},
 					},
-					Workload: workloadsv1alpha2.WorkloadSpec{
+					Workload: &workloadsv1alpha2.WorkloadSpec{
 						APIVersion: "workloads.x-k8s.io/v1alpha2",
 						Kind:       "RoleInstanceSet",
 					},

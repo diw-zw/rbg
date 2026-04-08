@@ -198,7 +198,7 @@ func (r *LeaderWorkerSetReconciler) CleanupOrphanedWorkloads(
 		}
 		found := false
 		for _, role := range rbg.Spec.Roles {
-			if role.Workload.Kind == "LeaderWorkerSet" && rbg.GetWorkloadName(&role) == lws.Name {
+			if role.GetWorkload().Kind == "LeaderWorkerSet" && rbg.GetWorkloadName(&role) == lws.Name {
 				found = true
 				break
 			}

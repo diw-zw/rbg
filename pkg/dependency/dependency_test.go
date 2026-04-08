@@ -300,14 +300,14 @@ func TestDefaultDependencyManager_CheckDependencyReady(t *testing.T) {
 				{
 					Name:         "role1",
 					Dependencies: []string{"role2"},
-					Workload: workloadsv1alpha2.WorkloadSpec{
+					Workload: &workloadsv1alpha2.WorkloadSpec{
 						APIVersion: "apps/v1",
 						Kind:       "StatefulSet",
 					},
 				},
 				{
 					Name: "role2",
-					Workload: workloadsv1alpha2.WorkloadSpec{
+					Workload: &workloadsv1alpha2.WorkloadSpec{
 						APIVersion: "apps/v1",
 						Kind:       "StatefulSet",
 					},

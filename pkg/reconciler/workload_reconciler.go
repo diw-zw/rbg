@@ -53,7 +53,7 @@ type PodGroupManagerSetter interface {
 }
 
 func NewWorkloadReconciler(
-	workload workloadsv1alpha2.WorkloadSpec, scheme *runtime.Scheme, client client.Client,
+	workload *workloadsv1alpha2.WorkloadSpec, scheme *runtime.Scheme, client client.Client,
 ) (WorkloadReconciler, error) {
 	switch {
 	case workload.String() == constants.DeploymentWorkloadType:

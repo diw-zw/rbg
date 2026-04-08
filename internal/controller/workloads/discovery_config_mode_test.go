@@ -149,7 +149,7 @@ func TestReconcileRefinedDiscoveryConfigMap(t *testing.T) {
 		rbg.Spec.Roles = append(rbg.Spec.Roles, workloadsv1alpha2.RoleSpec{
 			Name:     "router",
 			Replicas: ptr.To(int32(1)),
-			Workload: workloadsv1alpha2.WorkloadSpec{
+			Workload: &workloadsv1alpha2.WorkloadSpec{
 				APIVersion: "apps/v1",
 				Kind:       "Deployment",
 			},
@@ -198,7 +198,7 @@ func TestReconcileRefinedDiscoveryConfigMap(t *testing.T) {
 				{
 					Name:     "router",
 					Replicas: ptr.To(int32(1)),
-					Workload: workloadsv1alpha2.WorkloadSpec{
+					Workload: &workloadsv1alpha2.WorkloadSpec{
 						APIVersion: "apps/v1",
 						Kind:       "Deployment",
 					},

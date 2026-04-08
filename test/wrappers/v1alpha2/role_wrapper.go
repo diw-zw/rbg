@@ -70,7 +70,7 @@ func (rw *StandaloneRoleWrapper) WithRestartPolicy(rp workloadsv1alpha2.RestartP
 }
 
 func (rw *StandaloneRoleWrapper) WithWorkload(apiVersion, kind string) *StandaloneRoleWrapper {
-	rw.Workload = workloadsv1alpha2.WorkloadSpec{
+	rw.Workload = &workloadsv1alpha2.WorkloadSpec{
 		APIVersion: apiVersion,
 		Kind:       kind,
 	}
@@ -114,7 +114,7 @@ func BuildStandaloneRole(name string) *StandaloneRoleWrapper {
 			RolloutStrategy: &workloadsv1alpha2.RolloutStrategy{
 				Type: workloadsv1alpha2.RollingUpdateStrategyType,
 			},
-			Workload: workloadsv1alpha2.WorkloadSpec{
+			Workload: &workloadsv1alpha2.WorkloadSpec{
 				APIVersion: "workloads.x-k8s.io/v1alpha2",
 				Kind:       "RoleInstanceSet",
 			},
@@ -193,7 +193,7 @@ func BuildLeaderWorkerRole(name string) *LeaderWorkerRoleWrapper {
 			RolloutStrategy: &workloadsv1alpha2.RolloutStrategy{
 				Type: workloadsv1alpha2.RollingUpdateStrategyType,
 			},
-			Workload: workloadsv1alpha2.WorkloadSpec{
+			Workload: &workloadsv1alpha2.WorkloadSpec{
 				APIVersion: "leaderworkerset.x-k8s.io/v1",
 				Kind:       "LeaderWorkerSet",
 			},

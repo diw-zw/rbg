@@ -288,7 +288,7 @@ func (r *RoleBasedGroupReconciler) preCheck(ctx context.Context, rbg *workloadsv
 	var errs []error
 	for _, role := range rbg.Spec.Roles {
 		roleCtx := log.IntoContext(ctx, logger.WithValues("role", role.Name))
-		workloadReconciler, err := r.getOrCreateWorkloadReconciler(roleCtx, role.Workload)
+		workloadReconciler, err := r.getOrCreateWorkloadReconciler(roleCtx, role.GetWorkload())
 		if err != nil {
 			logger.Error(err, "Failed to create workload reconciler")
 			r.recorder.Eventf(
@@ -490,7 +490,7 @@ func (r *RoleBasedGroupReconciler) reconcileSingleRole(
 	logger := log.FromContext(ctx)
 
 	// Get or create workload reconciler
-	reconciler, err := r.getOrCreateWorkloadReconciler(ctx, role.Workload)
+	reconciler, err := r.getOrCreateWorkloadReconciler(ctx, role.GetWorkload())
 	if err != nil {
 		logger.Error(err, "Failed to get workload reconciler")
 		r.recorder.Eventf(
@@ -565,7 +565,7 @@ func (r *RoleBasedGroupReconciler) cleanup(ctx context.Context, rbg *workloadsv1
 
 func (r *RoleBasedGroupReconciler) getOrCreateWorkloadReconciler(
 	ctx context.Context,
-	workloadSpec workloadsv1alpha2.WorkloadSpec,
+	workloadSpec *workloadsv1alpha2.WorkloadSpec,
 ) (reconciler.WorkloadReconciler, error) {
 	workloadType := workloadSpec.String()
 
@@ -616,7 +616,7 @@ func (r *RoleBasedGroupReconciler) constructAndUpdateRoleStatuses(
 		logger := log.FromContext(ctx)
 		roleCtx := log.IntoContext(ctx, logger.WithValues("role", role.Name))
 
-		reconciler, err := r.getOrCreateWorkloadReconciler(ctx, role.Workload)
+		reconciler, err := r.getOrCreateWorkloadReconciler(ctx, role.GetWorkload())
 		if err != nil {
 			logger.Error(err, "Failed to get workload reconciler")
 			r.recorder.Eventf(

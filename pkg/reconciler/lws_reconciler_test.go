@@ -236,7 +236,7 @@ func TestLeaderWorkerSetReconciler_CleanupOrphanedWorkloads(t *testing.T) {
 				{
 					Name:     "role1",
 					Replicas: ptr.To(int32(2)),
-					Workload: workloadsv1alpha2.WorkloadSpec{
+					Workload: &workloadsv1alpha2.WorkloadSpec{
 						APIVersion: "leaderworkerset.x-k8s.io/v1",
 						Kind:       "LeaderWorkerSet",
 					},
