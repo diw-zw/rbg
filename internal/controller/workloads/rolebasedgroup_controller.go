@@ -567,6 +567,9 @@ func (r *RoleBasedGroupReconciler) getOrCreateWorkloadReconciler(
 	ctx context.Context,
 	workloadSpec *workloadsv1alpha2.WorkloadSpec,
 ) (reconciler.WorkloadReconciler, error) {
+	if workloadSpec == nil {
+		return nil, fmt.Errorf("workloadSpec cannot be nil")
+	}
 	workloadType := workloadSpec.String()
 
 	// Fast path: check if reconciler already exists with read lock

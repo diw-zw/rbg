@@ -277,13 +277,15 @@ var defaultWorkload = WorkloadSpec{
 }
 
 // GetWorkload returns the WorkloadSpec for this role.
-// If Workload is nil, it returns the default workload spec.
+// If Workload is nil, it returns a copy of the default workload spec.
 // Deprecated: Use pattern-based approach instead (StandalonePattern, LeaderWorkerPattern).
 func (r *RoleSpec) GetWorkload() *WorkloadSpec {
 	if r.Workload != nil {
 		return r.Workload
 	}
-	return &defaultWorkload
+	// Return a copy to prevent mutation of the package-level default.
+	defaultCopy := defaultWorkload
+	return &defaultCopy
 }
 
 // GetDiscoveryConfigMode returns the discovery config mode from annotations.

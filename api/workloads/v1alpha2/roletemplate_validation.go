@@ -107,10 +107,11 @@ func validateRoleTemplateFields(
 		// Get workload safely (handles nil pointer with default value).
 		wl := role.GetWorkload()
 
-		// Defense-in-depth: CRD validates this, but controller validates as well.
-		if wl.Kind == "InstanceSet" {
+		// v1alpha2 CRD does not validate workload-kind-specific templateRef restrictions;
+		// enforce RoleInstanceSet restrictions here at the controller layer.
+		if wl.Kind == "RoleInstanceSet" {
 			return fmt.Errorf(
-				"spec.roles[%d].templateRef: not supported for InstanceSet workloads",
+				"spec.roles[%d].templateRef: not supported for RoleInstanceSet workloads",
 				index,
 			)
 		}

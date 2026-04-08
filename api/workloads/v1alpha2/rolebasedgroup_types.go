@@ -115,7 +115,7 @@ const (
 
 // RollingUpdate defines the parameters to be used for RollingUpdateStrategyType.
 type RollingUpdate struct {
-	// Type indicates the type of the InstanceSetUpdateStrategy.
+	// Type indicates the type of the RoleInstanceSetUpdateStrategy.
 	// Default is InPlaceIfPossible.
 	Type UpdateStrategyType `json:"type,omitempty"`
 
@@ -134,7 +134,7 @@ type RollingUpdate struct {
 	// +kubebuilder:default=0
 	MaxSurge *intstr.IntOrString `json:"maxSurge,omitempty"`
 
-	// Paused indicates that the InstanceSet is paused.
+	// Paused indicates that the RoleInstanceSet is paused.
 	Paused bool `json:"paused,omitempty"`
 
 	// InPlaceUpdateStrategy contains strategies for in-place update.
@@ -196,7 +196,7 @@ type RoleSpec struct {
 
 	// Workload type specification
 	// Deprecated: This field is deprecated and will be removed in future versions.
-	// The underlying workload will use InstanceSet.
+	// The underlying workload will use RoleInstanceSet.
 	// +kubebuilder:default={apiVersion:"workloads.x-k8s.io/v1alpha2", kind:"RoleInstanceSet"}
 	// +optional
 	Workload *WorkloadSpec `json:"workload,omitempty"`
