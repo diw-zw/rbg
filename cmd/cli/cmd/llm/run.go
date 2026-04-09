@@ -157,8 +157,14 @@ func resolveRunContext(name, modelID string, p RunParams, userCfg *cliconfig.Con
 	// 6. Build resource requirements from ResourceList
 	var resources corev1.ResourceRequirements
 	if len(modeCfg.Resources) > 0 {
-		resources.Requests = modeCfg.Resources
-		resources.Limits = modeCfg.Resources
+		requests := corev1.ResourceList{}
+		limits := corev1.ResourceList{}
+		for k, v := range modeCfg.Resources {
+			requests[k] = v
+			limits[k] = v
+		}
+		resources.Requests = requests
+		resources.Limits = limits
 	}
 
 	// 7. Generate pod template using engine plugin with all options

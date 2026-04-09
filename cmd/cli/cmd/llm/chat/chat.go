@@ -141,19 +141,38 @@ port-forward tunnel, and communicates over the OpenAI /v1/chat/completions API.`
 			}
 
 			// 2. Find a ready pod for the service.
+			// For LeaderWorkerPattern (multi-node), only the leader (ComponentIndex=0) serves the API.
+			// For StandalonePattern (single-node), ComponentIndex is not set, so we fall back to any ready pod.
 			k8sClient, err := util.GetK8SClientSet(cf)
 			if err != nil {
 				return fmt.Errorf("failed to create Kubernetes client: %w", err)
 			}
-			labelSelector := labels.SelectorFromSet(labels.Set{
-				constants.GroupNameLabelKey: name,
-				constants.RoleNameLabelKey:  "inference",
+
+			// First try to find a leader pod (ComponentIndex=0) for multi-node deployments
+			leaderSelector := labels.SelectorFromSet(labels.Set{
+				constants.GroupNameLabelKey:      name,
+				constants.RoleNameLabelKey:       "inference",
+				constants.ComponentIndexLabelKey: "0",
 			}).String()
 			pods, err := k8sClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
-				LabelSelector: labelSelector,
+				LabelSelector: leaderSelector,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to list pods: %w", err)
+			}
+
+			// If no leader pod found, fall back to any pod with the role (for single-node deployments)
+			if len(pods.Items) == 0 {
+				fallbackSelector := labels.SelectorFromSet(labels.Set{
+					constants.GroupNameLabelKey: name,
+					constants.RoleNameLabelKey:  "inference",
+				}).String()
+				pods, err = k8sClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+					LabelSelector: fallbackSelector,
+				})
+				if err != nil {
+					return fmt.Errorf("failed to list pods: %w", err)
+				}
 			}
 
 			podName := ""
@@ -165,7 +184,7 @@ port-forward tunnel, and communicates over the OpenAI /v1/chat/completions API.`
 				}
 			}
 			if podName == "" {
-				return fmt.Errorf("no ready pods found for service %q (selector: %s)", name, labelSelector)
+				return fmt.Errorf("no ready pods found for service %q", name)
 			}
 
 			// 3. Resolve the local port.

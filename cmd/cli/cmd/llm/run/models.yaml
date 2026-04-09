@@ -43,7 +43,6 @@
         - "--mem-fraction-static=0.8"
         - "--max-prefill-tokens=16384"
 
-    # TODO: test only, remove later
     - name: distributed-tp2
       description: "Distributed inference with tensor parallel size 2 on 2 nodes"
       engine: sglang

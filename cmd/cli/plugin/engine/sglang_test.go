@@ -75,7 +75,7 @@ func TestSGLangEngine_GenerateTemplate(t *testing.T) {
 	assert.Equal(t, []string{"python", "-m", "sglang.launch_server"}, c.Command)
 	assert.Contains(t, c.Args, "--model-path")
 	assert.Contains(t, c.Args, "/models/mymodel")
-	assert.Contains(t, c.Args, "--model-name")
+	assert.Contains(t, c.Args, "--served-model-name")
 	assert.Contains(t, c.Args, "mymodel")
 	require.Len(t, c.Ports, 1)
 	assert.Equal(t, int32(30000), c.Ports[0].ContainerPort)
