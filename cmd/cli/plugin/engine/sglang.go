@@ -17,7 +17,10 @@ limitations under the License.
 package engine
 
 import (
+	"fmt"
+
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/rbgs/cmd/cli/plugin/util"
 )
 
@@ -98,7 +101,7 @@ func (s *SGLangEngine) GenerateTemplate(opts GenerateOptions) (*corev1.PodTempla
 	}
 	env = append(env, opts.Env...)
 
-	return &corev1.PodTemplateSpec{
+	podSpec := &corev1.PodTemplateSpec{
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
@@ -118,5 +121,32 @@ func (s *SGLangEngine) GenerateTemplate(opts GenerateOptions) (*corev1.PodTempla
 				},
 			},
 		},
-	}, nil
+	}
+
+	// Add shared memory volume if ShmSize is specified
+	if opts.ShmSize != "" {
+		shmQuantity, err := resource.ParseQuantity(opts.ShmSize)
+		if err != nil {
+			return nil, fmt.Errorf("invalid shmSize %q: %w", opts.ShmSize, err)
+		}
+
+		// Add volume to pod
+		podSpec.Spec.Volumes = append(podSpec.Spec.Volumes, corev1.Volume{
+			Name: "shm",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{
+					Medium:    corev1.StorageMediumMemory,
+					SizeLimit: &shmQuantity,
+				},
+			},
+		})
+
+		// Add volume mount to container
+		podSpec.Spec.Containers[0].VolumeMounts = append(podSpec.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "shm",
+			MountPath: "/dev/shm",
+		})
+	}
+
+	return podSpec, nil
 }

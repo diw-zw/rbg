@@ -32,7 +32,8 @@ type GenerateOptions struct {
 	Args            []string        // Additional arguments
 	Env             []corev1.EnvVar // Additional environment variables
 	Resources       corev1.ResourceRequirements
-	DistributedSize int32 // Multi-node deployment size, <=1 means standalone
+	DistributedSize int32  // Multi-node deployment size, <=1 means standalone
+	ShmSize         string // Shared memory size (e.g., "8Gi", "16Gi"), empty means no shared memory
 }
 
 // Plugin defines the interface for inference engines.

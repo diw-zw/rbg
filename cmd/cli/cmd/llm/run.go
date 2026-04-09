@@ -171,6 +171,7 @@ func resolveRunContext(name, modelID string, p RunParams, userCfg *cliconfig.Con
 		Env:             envVars,
 		Resources:       resources,
 		DistributedSize: distributedSize,
+		ShmSize:         modeCfg.ShmSize,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate engine template: %w", err)

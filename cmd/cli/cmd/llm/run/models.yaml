@@ -56,3 +56,4 @@
         - "--tp-size=2"
       distributed:
         size: 2
+      shmSize: "2Gi"

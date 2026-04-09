@@ -46,6 +46,7 @@ type ModeConfig struct {
 	Args        []string            `yaml:"args"`
 	Env         []corev1.EnvVar     `yaml:"env"`
 	Distributed *DistributedConfig  `yaml:"distributed,omitempty"` // Multi-node deployment config
+	ShmSize     string              `yaml:"shmSize,omitempty"`     // Shared memory size (e.g., "8Gi", "16Gi")
 }
 
 // DistributedConfig describes multi-node deployment configuration.
