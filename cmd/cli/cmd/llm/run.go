@@ -69,25 +69,20 @@ type RunParams struct {
 	Revision string
 	EnvVars  []string
 	ArgsList []string
+	DryRun   bool
+	Replicas int32
 }
 
-// runContext holds the fully resolved artifacts produced by resolveRunContext.
-type runContext struct {
-	PodTemplate     *corev1.PodTemplateSpec
-	EngineType      string
-	ModeName        string
-	ResolvedPort    int32
-	StoragePlugin   storageplugin.Plugin
-	StorageName     string
-	DistributedSize int32 // Multi-node deployment size, <= 1 means standalone
+// modeConfigResult holds the result of mode config resolution.
+type modeConfigResult struct {
+	modelCfg     *runpkg.ModelConfig
+	modeCfg      *runpkg.ModeConfig
+	enginePlugin engineplugin.Plugin
+	engineType   string
 }
 
-// resolveRunContext performs all pure data resolution for the run command:
-// model/mode lookup → engine resolution → storage/model-path resolution →
-// pod template construction → resource overlay → port extraction.
-// It has no side effects and is independently testable.
-func resolveRunContext(name, modelID string, p RunParams, userCfg *cliconfig.Config) (*runContext, error) {
-	// 1. Load and find model + mode config
+// resolveModeConfig resolves model, mode, and engine configuration.
+func resolveModeConfig(modelID string, p RunParams, userCfg *cliconfig.Config) (*modeConfigResult, error) {
 	models, err := runpkg.LoadAllModels()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load model configs: %w", err)
@@ -101,7 +96,6 @@ func resolveRunContext(name, modelID string, p RunParams, userCfg *cliconfig.Con
 		return nil, err
 	}
 
-	// 2. Resolve engine type (flag overrides mode config)
 	engineType := modeCfg.Engine
 	if p.Engine != "" {
 		engineType = p.Engine
@@ -115,10 +109,27 @@ func resolveRunContext(name, modelID string, p RunParams, userCfg *cliconfig.Con
 		return nil, fmt.Errorf("failed to initialize engine %q: %w", engineType, err)
 	}
 
-	// 3. Resolve storage plugin and model path
+	return &modeConfigResult{
+		modelCfg:     modelCfg,
+		modeCfg:      modeCfg,
+		enginePlugin: enginePlugin,
+		engineType:   engineType,
+	}, nil
+}
+
+// storageResult holds the result of storage resolution.
+type storageResult struct {
+	modelPath     string
+	storagePlugin storageplugin.Plugin
+	storageName   string
+}
+
+// resolveStorageAndModelPath resolves storage plugin and model path.
+func resolveStorageAndModelPath(modelID string, p RunParams, userCfg *cliconfig.Config) *storageResult {
 	var modelPath string
 	var storagePlugin storageplugin.Plugin
 	var storageName string
+
 	if userCfg != nil {
 		storageName = userCfg.CurrentStorage
 		if p.Storage != "" {
@@ -137,24 +148,30 @@ func resolveRunContext(name, modelID string, p RunParams, userCfg *cliconfig.Con
 		modelPath = "/model/" + sanitizeModelID(modelID) + "/" + sanitizeModelID(p.Revision)
 	}
 
-	// 4. Extract distributed size from mode config
+	return &storageResult{
+		modelPath:     modelPath,
+		storagePlugin: storagePlugin,
+		storageName:   storageName,
+	}
+}
+
+// buildGenerateOptions builds GenerateOptions from mode config and run params.
+func buildGenerateOptions(name, modelID, modelPath string, modeCfg *runpkg.ModeConfig, p RunParams) (engineplugin.GenerateOptions, error) {
 	distributedSize := int32(0)
 	if modeCfg.Distributed != nil && modeCfg.Distributed.Size > 1 {
 		distributedSize = modeCfg.Distributed.Size
 	}
 
-	// 5. Build environment variables
 	envVars := make([]corev1.EnvVar, len(modeCfg.Env))
 	copy(envVars, modeCfg.Env)
 	for _, ev := range p.EnvVars {
 		parts := strings.SplitN(ev, "=", 2)
 		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid environment variable format: %q, expected KEY=VALUE", ev)
+			return engineplugin.GenerateOptions{}, fmt.Errorf("invalid environment variable format: %q, expected KEY=VALUE", ev)
 		}
 		envVars = append(envVars, corev1.EnvVar{Name: parts[0], Value: parts[1]})
 	}
 
-	// 6. Build resource requirements from ResourceList
 	var resources corev1.ResourceRequirements
 	if len(modeCfg.Resources) > 0 {
 		requests := corev1.ResourceList{}
@@ -167,8 +184,7 @@ func resolveRunContext(name, modelID string, p RunParams, userCfg *cliconfig.Con
 		resources.Limits = limits
 	}
 
-	// 7. Generate pod template using engine plugin with all options
-	podTemplate, err := enginePlugin.GenerateTemplate(engineplugin.GenerateOptions{
+	return engineplugin.GenerateOptions{
 		Name:            name,
 		ModelID:         modelID,
 		ModelPath:       modelPath,
@@ -178,106 +194,33 @@ func resolveRunContext(name, modelID string, p RunParams, userCfg *cliconfig.Con
 		Resources:       resources,
 		DistributedSize: distributedSize,
 		ShmSize:         modeCfg.ShmSize,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate engine template: %w", err)
-	}
-	if len(podTemplate.Spec.Containers) == 0 {
-		return nil, fmt.Errorf("engine %q generated template with no containers", engineType)
-	}
-
-	if podTemplate.ObjectMeta.Labels == nil {
-		podTemplate.ObjectMeta.Labels = make(map[string]string)
-	}
-
-	// 7. Extract resolved port from the generated template (ground truth for what is deployed)
-	var resolvedPort int32
-	for _, cp := range podTemplate.Spec.Containers[0].Ports {
-		if cp.Name == "http" {
-			resolvedPort = cp.ContainerPort
-			break
-		}
-	}
-
-	return &runContext{
-		PodTemplate:     podTemplate,
-		EngineType:      engineType,
-		ModeName:        modeCfg.Name,
-		ResolvedPort:    resolvedPort,
-		StoragePlugin:   storagePlugin,
-		StorageName:     storageName,
-		DistributedSize: distributedSize,
 	}, nil
 }
 
-// generateRBG creates a v1alpha2 RoleBasedGroup from the pod template and configuration
-func generateRBG(name, namespace, modelID, revision string, replicas int32, rctx *runContext) *workloadsv1alpha2.RoleBasedGroup {
-	// Build metadata annotation as JSON
-	metadata := llmmeta.RunMetadata{
-		ModelID:  modelID,
-		Engine:   rctx.EngineType,
-		Mode:     rctx.ModeName,
-		Revision: revision,
-		Port:     rctx.ResolvedPort,
+// assembleRBG assembles a RoleBasedGroup from pattern and metadata.
+func assembleRBG(name, namespace string, pattern *workloadsv1alpha2.Pattern, metadata llmmeta.RunMetadata, replicas int32) *workloadsv1alpha2.RoleBasedGroup {
+	podTemplate := getPodTemplateFromPattern(pattern)
+	if podTemplate.ObjectMeta.Labels == nil {
+		podTemplate.ObjectMeta.Labels = make(map[string]string)
 	}
+	podTemplate.ObjectMeta.Labels[llmmeta.RunCommandSourceLabelKey] = llmmeta.RunCommandSourceLabelValue
+
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {
 		klog.V(1).Infof("failed to marshal run metadata: %v", err)
 	}
 
-	// Ensure pod template has labels
-	if rctx.PodTemplate.ObjectMeta.Labels == nil {
-		rctx.PodTemplate.ObjectMeta.Labels = make(map[string]string)
+	roleSpec := workloadsv1alpha2.RoleSpec{
+		Name:     "inference",
+		Replicas: &replicas,
+		Pattern:  *pattern,
+		// TODO: Remove workload field after PR #261
+		Workload: workloadsv1alpha2.WorkloadSpec{
+			APIVersion: "workloads.x-k8s.io/v1alpha2",
+			Kind:       "RoleInstanceSet",
+		},
 	}
 
-	// Set standard labels on pod template
-	rctx.PodTemplate.ObjectMeta.Labels[llmmeta.RunCommandSourceLabelKey] = llmmeta.RunCommandSourceLabelValue
-
-	// Build role spec based on deployment mode (standalone or distributed)
-	// Note: Workload field is deprecated and should not be set.
-	// The controller will automatically use the appropriate workload type
-	// based on the pattern (StandalonePattern -> RoleInstanceSet, LeaderWorkerPattern -> LeaderWorkerSet).
-	var roleSpec workloadsv1alpha2.RoleSpec
-	if rctx.DistributedSize > 1 {
-		// Multi-node deployment using LeaderWorkerPattern
-		roleSpec = workloadsv1alpha2.RoleSpec{
-			Name:     "inference",
-			Replicas: &replicas,
-			Pattern: workloadsv1alpha2.Pattern{
-				LeaderWorkerPattern: &workloadsv1alpha2.LeaderWorkerPattern{
-					Size: &rctx.DistributedSize,
-					TemplateSource: workloadsv1alpha2.TemplateSource{
-						Template: rctx.PodTemplate,
-					},
-				},
-			},
-			// TODO: Remove workload field after PR #261
-			Workload: workloadsv1alpha2.WorkloadSpec{
-				APIVersion: "workloads.x-k8s.io/v1alpha2",
-				Kind:       "RoleInstanceSet",
-			},
-		}
-	} else {
-		// Single-node deployment using StandalonePattern
-		roleSpec = workloadsv1alpha2.RoleSpec{
-			Name:     "inference",
-			Replicas: &replicas,
-			Pattern: workloadsv1alpha2.Pattern{
-				StandalonePattern: &workloadsv1alpha2.StandalonePattern{
-					TemplateSource: workloadsv1alpha2.TemplateSource{
-						Template: rctx.PodTemplate,
-					},
-				},
-			},
-			// TODO: Remove workload field after PR #261
-			Workload: workloadsv1alpha2.WorkloadSpec{
-				APIVersion: "workloads.x-k8s.io/v1alpha2",
-				Kind:       "RoleInstanceSet",
-			},
-		}
-	}
-
-	// Create the RoleBasedGroup
 	return &workloadsv1alpha2.RoleBasedGroup{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "workloads.x-k8s.io/v1alpha2",
@@ -299,14 +242,108 @@ func generateRBG(name, namespace, modelID, revision string, replicas int32, rctx
 	}
 }
 
+// generateRBG generates a RoleBasedGroup and prints summary information.
+// It performs: model config resolution → pattern generation → storage mounting → RBG assembly.
+func generateRBG(name, modelID, namespace string, p RunParams, userCfg *cliconfig.Config, cf *genericclioptions.ConfigFlags) (*workloadsv1alpha2.RoleBasedGroup, error) {
+	// 1. Resolve model/mode/engine config
+	modeRes, err := resolveModeConfig(modelID, p, userCfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Resolve storage and model path
+	storageRes := resolveStorageAndModelPath(modelID, p, userCfg)
+
+	// 3. Build GenerateOptions
+	opts, err := buildGenerateOptions(name, modelID, storageRes.modelPath, modeRes.modeCfg, p)
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. Generate pattern
+	pattern, err := modeRes.enginePlugin.GeneratePattern(opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate engine pattern: %w", err)
+	}
+	podTemplate := getPodTemplateFromPattern(pattern)
+	if podTemplate == nil || len(podTemplate.Spec.Containers) == 0 {
+		return nil, fmt.Errorf("engine %q generated pattern with no containers", modeRes.engineType)
+	}
+
+	// 5. Mount storage
+	if storageRes.storagePlugin != nil && storageRes.storageName != "" {
+		mountOpts := storageplugin.MountOptions{
+			StorageName: storageRes.storageName,
+			Namespace:   namespace,
+			DryRun:      p.DryRun,
+		}
+		if !p.DryRun {
+			c, err := util.GetControllerRuntimeClient(cf)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create controller client: %w", err)
+			}
+			mountOpts.Client = c
+		}
+		if err := storageRes.storagePlugin.MountStorage(podTemplate, mountOpts); err != nil {
+			return nil, fmt.Errorf("failed to mount storage: %w", err)
+		}
+	}
+
+	// 6. Extract port and build metadata
+	var resolvedPort int32
+	for _, cp := range podTemplate.Spec.Containers[0].Ports {
+		if cp.Name == "http" {
+			resolvedPort = cp.ContainerPort
+			break
+		}
+	}
+	metadata := llmmeta.RunMetadata{
+		ModelID:  modelID,
+		Engine:   modeRes.engineType,
+		Mode:     modeRes.modeCfg.Name,
+		Revision: p.Revision,
+		Port:     resolvedPort,
+	}
+
+	// 7. Assemble RBG
+	rbg := assembleRBG(name, namespace, pattern, metadata, p.Replicas)
+
+	// 8. Print summary
+	fmt.Println("# Generated RoleBasedGroup for Model Serving")
+	fmt.Printf("# Name:      %s\n", name)
+	fmt.Printf("# Namespace: %s\n", namespace)
+	fmt.Printf("# Model:     %s\n", modelID)
+	fmt.Printf("# Revision:  %s\n", p.Revision)
+	fmt.Printf("# Mode:      %s\n", modeRes.modeCfg.Name)
+	fmt.Printf("# Engine:    %s\n", modeRes.engineType)
+	fmt.Printf("# Replicas:  %d\n", p.Replicas)
+	fmt.Println("#")
+
+	return rbg, nil
+}
+
+// getPodTemplateFromPattern extracts the pod template from a Pattern
+func getPodTemplateFromPattern(pattern *workloadsv1alpha2.Pattern) *corev1.PodTemplateSpec {
+	if pattern == nil {
+		return nil
+	}
+	if pattern.StandalonePattern != nil && pattern.StandalonePattern.Template != nil {
+		return pattern.StandalonePattern.Template
+	}
+	if pattern.LeaderWorkerPattern != nil && pattern.LeaderWorkerPattern.Template != nil {
+		return pattern.LeaderWorkerPattern.Template
+	}
+	return nil
+}
+
 // createRBG creates a v1alpha2 RoleBasedGroup in Kubernetes
-func createRBG(ctx context.Context, rbg *workloadsv1alpha2.RoleBasedGroup, namespace string, cf *genericclioptions.ConfigFlags) error {
+func createRBG(ctx context.Context, rbg *workloadsv1alpha2.RoleBasedGroup, cf *genericclioptions.ConfigFlags) error {
 	client, err := util.GetRBGClient(cf)
 	if err != nil {
 		return fmt.Errorf("failed to create RBG client: %w", err)
 	}
 
-	_, err = client.WorkloadsV1alpha2().RoleBasedGroups(namespace).Create(ctx, rbg, metav1.CreateOptions{})
+	_, err = client.WorkloadsV1alpha2().RoleBasedGroups(rbg.Namespace).Create(ctx, rbg, metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to create RoleBasedGroup: %w", err)
 	}
@@ -371,6 +408,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			modelID := args[1]
+			namespace := util.GetNamespace(cf)
 
 			// Load user config (best-effort — optional for engine and storage resolution)
 			userCfg, cfgErr := cliconfig.Load()
@@ -378,73 +416,30 @@ Examples:
 				klog.V(1).Infof("Warning: failed to load user config: %v", cfgErr)
 			}
 
-			// Resolve all pure data: model/mode/engine/storage/template/port
-			rctx, err := resolveRunContext(name, modelID, RunParams{
+			// Generate RBG (includes config resolution, pattern generation, storage mounting)
+			rbg, err := generateRBG(name, modelID, namespace, RunParams{
 				Mode:     mode,
 				Engine:   engine,
 				Storage:  storage,
 				Revision: revision,
 				EnvVars:  envVars,
 				ArgsList: argsList,
-			}, userCfg)
+				DryRun:   dryRun,
+				Replicas: replicas,
+			}, userCfg, cf)
 			if err != nil {
 				return err
 			}
 
-			// Get namespace
-			namespace := util.GetNamespace(cf)
-
-			// Mount storage: in dry-run mode, only add volumes/mounts without provisioning K8s resources
-			if rctx.StoragePlugin != nil && rctx.StorageName != "" {
-				mountOpts := storageplugin.MountOptions{
-					StorageName: rctx.StorageName,
-					Namespace:   namespace,
-					DryRun:      dryRun,
-				}
-				if !dryRun {
-					c, err := util.GetControllerRuntimeClient(cf)
-					if err != nil {
-						return fmt.Errorf("failed to create controller client: %w", err)
-					}
-					mountOpts.Client = c
-				}
-				if err := rctx.StoragePlugin.MountStorage(rctx.PodTemplate, mountOpts); err != nil {
-					return fmt.Errorf("failed to mount storage: %w", err)
-				}
-			}
-
-			// Generate RoleBasedGroup from the (now fully configured) pod template
-			rbg := generateRBG(name, namespace, modelID, revision, replicas, rctx)
-
 			if dryRun {
-				fmt.Println("# Generated RoleBasedGroup for Model Serving (DRY RUN)")
-				fmt.Printf("# Name:      %s\n", name)
-				fmt.Printf("# Namespace: %s\n", namespace)
-				fmt.Printf("# Model:     %s\n", modelID)
-				fmt.Printf("# Revision:  %s\n", revision)
-				fmt.Printf("# Mode:      %s\n", rctx.ModeName)
-				fmt.Printf("# Engine:    %s\n", rctx.EngineType)
-				fmt.Printf("# Replicas:  %d\n", replicas)
-				fmt.Println("#")
 				fmt.Println("# DRY RUN: No workload will be created")
 				fmt.Println()
 				return printRBG(rbg)
 			}
 
-			// Print summary
-			fmt.Println("# Generated RoleBasedGroup for Model Serving")
-			fmt.Printf("# Name:      %s\n", name)
-			fmt.Printf("# Namespace: %s\n", namespace)
-			fmt.Printf("# Model:     %s\n", modelID)
-			fmt.Printf("# Revision:  %s\n", revision)
-			fmt.Printf("# Mode:      %s\n", rctx.ModeName)
-			fmt.Printf("# Engine:    %s\n", rctx.EngineType)
-			fmt.Printf("# Replicas:  %d\n", replicas)
-			fmt.Println("#")
-
-			// Create the v1alpha2 RoleBasedGroup workload
+			// Create the RoleBasedGroup workload
 			ctx := context.Background()
-			if err := createRBG(ctx, rbg, namespace, cf); err != nil {
+			if err := createRBG(ctx, rbg, cf); err != nil {
 				klog.ErrorS(err, "Failed to create RoleBasedGroup")
 				return err
 			}

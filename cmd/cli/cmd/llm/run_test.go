@@ -17,12 +17,15 @@ limitations under the License.
 package llm
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+
+	llmmeta "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/metadata"
 )
 
 // --- newRunCmd: command metadata ---
@@ -138,103 +141,138 @@ func TestRunEnvVarParsing_EmptyValue(t *testing.T) {
 	assert.Equal(t, "", parts[1])
 }
 
-// --- resolveRunContext ---
+// --- generateRBG ---
 
-func TestResolveRunContext_DefaultMode_VLLMEngine(t *testing.T) {
+func TestGenerateRBG_DefaultMode_VLLMEngine(t *testing.T) {
 	// Qwen/Qwen3.5-0.8B standard mode uses vllm with port 8000
-	rctx, err := resolveRunContext("my-svc", "Qwen/Qwen3.5-0.8B", RunParams{
+	rbg, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Revision: "main",
-	}, nil)
+		Replicas: 1,
+		DryRun:   true,
+	}, nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "vllm", rctx.EngineType)
-	assert.Equal(t, "standard", rctx.ModeName)
-	assert.Equal(t, int32(8000), rctx.ResolvedPort)
-	assert.NotNil(t, rctx.PodTemplate)
-	assert.Nil(t, rctx.StoragePlugin)
+	assert.Equal(t, "my-svc", rbg.Name)
+	assert.Equal(t, "default", rbg.Namespace)
+
+	// Check metadata annotation
+	var metadata llmmeta.RunMetadata
+	err = json.Unmarshal([]byte(rbg.Annotations[llmmeta.RunCommandMetadataAnnotationKey]), &metadata)
+	require.NoError(t, err)
+	assert.Equal(t, "vllm", metadata.Engine)
+	assert.Equal(t, "standard", metadata.Mode)
+	assert.Equal(t, int32(8000), metadata.Port)
 }
 
-func TestResolveRunContext_LatencyMode_SGLangEngine(t *testing.T) {
+func TestGenerateRBG_LatencyMode_SGLangEngine(t *testing.T) {
 	// Qwen/Qwen3.5-0.8B latency mode uses sglang with port 30000
-	rctx, err := resolveRunContext("my-svc", "Qwen/Qwen3.5-0.8B", RunParams{
+	rbg, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Mode:     "latency",
 		Revision: "main",
-	}, nil)
+		Replicas: 1,
+		DryRun:   true,
+	}, nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "sglang", rctx.EngineType)
-	assert.Equal(t, "latency", rctx.ModeName)
-	assert.Equal(t, int32(30000), rctx.ResolvedPort)
+
+	var metadata llmmeta.RunMetadata
+	err = json.Unmarshal([]byte(rbg.Annotations[llmmeta.RunCommandMetadataAnnotationKey]), &metadata)
+	require.NoError(t, err)
+	assert.Equal(t, "sglang", metadata.Engine)
+	assert.Equal(t, "latency", metadata.Mode)
+	assert.Equal(t, int32(30000), metadata.Port)
 }
 
-func TestResolveRunContext_EngineOverride(t *testing.T) {
+func TestGenerateRBG_EngineOverride(t *testing.T) {
 	// Engine flag overrides the mode's default engine
-	rctx, err := resolveRunContext("my-svc", "Qwen/Qwen3.5-0.8B", RunParams{
+	rbg, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Engine:   "sglang",
 		Revision: "main",
-	}, nil)
+		Replicas: 1,
+		DryRun:   true,
+	}, nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "sglang", rctx.EngineType)
-	assert.Equal(t, int32(30000), rctx.ResolvedPort)
+
+	var metadata llmmeta.RunMetadata
+	err = json.Unmarshal([]byte(rbg.Annotations[llmmeta.RunCommandMetadataAnnotationKey]), &metadata)
+	require.NoError(t, err)
+	assert.Equal(t, "sglang", metadata.Engine)
 }
 
-func TestResolveRunContext_EnvVarInjection(t *testing.T) {
-	rctx, err := resolveRunContext("my-svc", "Qwen/Qwen3.5-0.8B", RunParams{
+func TestGenerateRBG_EnvVarInjection(t *testing.T) {
+	rbg, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Revision: "main",
 		EnvVars:  []string{"MY_KEY=my_value"},
-	}, nil)
+		Replicas: 1,
+		DryRun:   true,
+	}, nil, nil)
 	require.NoError(t, err)
+
+	podTemplate := getPodTemplateFromPattern(&rbg.Spec.Roles[0].Pattern)
 	envMap := map[string]string{}
-	for _, e := range rctx.PodTemplate.Spec.Containers[0].Env {
+	for _, e := range podTemplate.Spec.Containers[0].Env {
 		envMap[e.Name] = e.Value
 	}
 	assert.Equal(t, "my_value", envMap["MY_KEY"])
 }
 
-func TestResolveRunContext_InvalidEnvVar(t *testing.T) {
-	_, err := resolveRunContext("my-svc", "Qwen/Qwen3.5-0.8B", RunParams{
+func TestGenerateRBG_InvalidEnvVar(t *testing.T) {
+	_, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Revision: "main",
 		EnvVars:  []string{"NOEQUALSSIGN"},
-	}, nil)
+		Replicas: 1,
+		DryRun:   true,
+	}, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid environment variable format")
 }
 
-func TestResolveRunContext_UnknownModel(t *testing.T) {
+func TestGenerateRBG_UnknownModel(t *testing.T) {
 	// Unknown model should return error when no wildcard config exists
-	_, err := resolveRunContext("my-svc", "unknown/unknown-model", RunParams{
+	_, err := generateRBG("my-svc", "unknown/unknown-model", "default", RunParams{
 		Revision: "main",
-	}, nil)
+		Replicas: 1,
+		DryRun:   true,
+	}, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no configuration found for model")
 }
 
-func TestResolveRunContext_UnknownEngine_Errors(t *testing.T) {
-	_, err := resolveRunContext("my-svc", "Qwen/Qwen3.5-0.8B", RunParams{
+func TestGenerateRBG_UnknownEngine_Errors(t *testing.T) {
+	_, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Engine:   "nonexistent-engine",
 		Revision: "main",
-	}, nil)
+		Replicas: 1,
+		DryRun:   true,
+	}, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown engine type")
 }
 
-func TestResolveRunContext_AdditionalArgs(t *testing.T) {
-	rctx, err := resolveRunContext("my-svc", "Qwen/Qwen3.5-0.8B", RunParams{
+func TestGenerateRBG_AdditionalArgs(t *testing.T) {
+	rbg, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Revision: "main",
 		ArgsList: []string{"--custom-flag", "value"},
-	}, nil)
+		Replicas: 1,
+		DryRun:   true,
+	}, nil, nil)
 	require.NoError(t, err)
-	args := rctx.PodTemplate.Spec.Containers[0].Args
+
+	podTemplate := getPodTemplateFromPattern(&rbg.Spec.Roles[0].Pattern)
+	args := podTemplate.Spec.Containers[0].Args
 	assert.Contains(t, args, "--custom-flag")
 	assert.Contains(t, args, "value")
 }
 
-func TestResolveRunContext_FallbackModelPath(t *testing.T) {
+func TestGenerateRBG_FallbackModelPath(t *testing.T) {
 	// Without storage config, model path uses the /model/ fallback
-	rctx, err := resolveRunContext("my-svc", "Qwen/Qwen3.5-0.8B", RunParams{
+	rbg, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Revision: "main",
-	}, nil)
+		Replicas: 1,
+		DryRun:   true,
+	}, nil, nil)
 	require.NoError(t, err)
-	// vllm passes model path via --model arg
-	args := rctx.PodTemplate.Spec.Containers[0].Args
+
+	podTemplate := getPodTemplateFromPattern(&rbg.Spec.Roles[0].Pattern)
+	args := podTemplate.Spec.Containers[0].Args
 	var modelPathArg string
 	for i, a := range args {
 		if a == "--model" && i+1 < len(args) {

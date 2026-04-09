@@ -17,10 +17,13 @@ limitations under the License.
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
+	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
 	"sigs.k8s.io/rbgs/cmd/cli/plugin/util"
 )
 
@@ -64,15 +67,75 @@ func (v *VLLMEngine) Init(config map[string]interface{}) error {
 	return nil
 }
 
-// GenerateTemplate generates a pod template for running vLLM
-func (v *VLLMEngine) GenerateTemplate(opts GenerateOptions) (*corev1.PodTemplateSpec, error) {
-	// Use override image if provided, otherwise use default
-	image := v.Image
-	if opts.Image != "" {
-		image = opts.Image
+// GeneratePattern generates a Pattern for running vLLM.
+// For multi-node deployment, vLLM requires --headless flag for worker nodes.
+func (v *VLLMEngine) GeneratePattern(opts GenerateOptions) (*workloadsv1alpha2.Pattern, error) {
+	podTemplate, err := v.generatePodTemplate(opts)
+	if err != nil {
+		return nil, err
 	}
 
-	// Build base args
+	if opts.DistributedSize > 1 {
+		// Multi-node deployment using LeaderWorkerPattern
+		// vLLM requires --headless for worker nodes
+		// WorkerTemplatePatch must contain complete args because Strategic Merge Patch
+		// replaces args entirely rather than appending.
+		workerPatch, err := v.generateWorkerPatch(opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate worker patch: %w", err)
+		}
+
+		return &workloadsv1alpha2.Pattern{
+			LeaderWorkerPattern: &workloadsv1alpha2.LeaderWorkerPattern{
+				Size: &opts.DistributedSize,
+				TemplateSource: workloadsv1alpha2.TemplateSource{
+					Template: podTemplate,
+				},
+				WorkerTemplatePatch: workerPatch,
+			},
+		}, nil
+	}
+
+	// Single-node deployment using StandalonePattern
+	return &workloadsv1alpha2.Pattern{
+		StandalonePattern: &workloadsv1alpha2.StandalonePattern{
+			TemplateSource: workloadsv1alpha2.TemplateSource{
+				Template: podTemplate,
+			},
+		},
+	}, nil
+}
+
+// generateWorkerPatch creates a patch for worker nodes with complete args.
+// Note: Strategic Merge Patch replaces args entirely, so we must include all args.
+func (v *VLLMEngine) generateWorkerPatch(opts GenerateOptions) (*runtime.RawExtension, error) {
+	// Generate complete worker args (same as leader but with --headless appended)
+	workerArgs := v.generateArgs(opts, true)
+
+	patch := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"containers": []map[string]interface{}{
+				{
+					"name": "vllm",
+					"args": workerArgs,
+				},
+			},
+		},
+	}
+
+	patchJSON, err := json.Marshal(patch)
+	if err != nil {
+		return nil, err
+	}
+
+	return &runtime.RawExtension{
+		Raw: patchJSON,
+	}, nil
+}
+
+// generateArgs generates the args for vLLM container.
+// If isWorker is true, --headless flag is appended for worker nodes.
+func (v *VLLMEngine) generateArgs(opts GenerateOptions, isWorker bool) []string {
 	args := []string{
 		"--model",
 		opts.ModelPath,
@@ -80,8 +143,37 @@ func (v *VLLMEngine) GenerateTemplate(opts GenerateOptions) (*corev1.PodTemplate
 		opts.Name,
 	}
 
+	// Add distributed deployment args for multi-node setup
+	if opts.DistributedSize > 1 {
+		args = append(args,
+			"--nnodes", "$(RBG_LWP_GROUP_SIZE)",
+			"--node-rank", "$(RBG_LWP_WORKER_INDEX)",
+			"--master-addr", "$(RBG_LWP_LEADER_ADDRESS)",
+		)
+	}
+
 	// Add user-provided args
 	args = append(args, opts.Args...)
+
+	// Worker nodes need --headless flag
+	if isWorker {
+		args = append(args, "--headless")
+	}
+
+	return args
+}
+
+// generatePodTemplate generates the base PodTemplateSpec for vLLM.
+// The base template is used for leader nodes in multi-node deployment.
+func (v *VLLMEngine) generatePodTemplate(opts GenerateOptions) (*corev1.PodTemplateSpec, error) {
+	// Use override image if provided, otherwise use default
+	image := v.Image
+	if opts.Image != "" {
+		image = opts.Image
+	}
+
+	// Build args for leader/base template (isWorker=false)
+	args := v.generateArgs(opts, false)
 
 	podSpec := &corev1.PodTemplateSpec{
 		Spec: corev1.PodSpec{

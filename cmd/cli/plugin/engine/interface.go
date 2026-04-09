@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
 	"sigs.k8s.io/rbgs/cmd/cli/plugin/util"
 )
 
@@ -46,12 +47,11 @@ type Plugin interface {
 	// Init initializes the engine with credentials/config.
 	Init(config map[string]interface{}) error
 
-	// GenerateTemplate generates a complete PodTemplateSpec for the model engine.
-	// The implementation should handle all engine-specific logic including:
-	// - Container configuration (image, command, args)
-	// - Port configuration
-	// - Distributed deployment parameters (if DistributedSize > 1)
-	GenerateTemplate(opts GenerateOptions) (*corev1.PodTemplateSpec, error)
+	// GeneratePattern generates a complete Pattern for the model engine.
+	// The returned Pattern can be either:
+	// - StandalonePattern for single-node deployment
+	// - LeaderWorkerPattern for multi-node deployment (with LeaderTemplatePatch/WorkerTemplatePatch if needed)
+	GeneratePattern(opts GenerateOptions) (*workloadsv1alpha2.Pattern, error)
 }
 
 // Factory is a constructor for an engine plugin.

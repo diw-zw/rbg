@@ -21,6 +21,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
 	"sigs.k8s.io/rbgs/cmd/cli/plugin/util"
 )
 
@@ -64,8 +65,42 @@ func (s *SGLangEngine) Init(config map[string]interface{}) error {
 	return nil
 }
 
-// GenerateTemplate generates a pod template for running SGLang
-func (s *SGLangEngine) GenerateTemplate(opts GenerateOptions) (*corev1.PodTemplateSpec, error) {
+// GeneratePattern generates a Pattern for running SGLang.
+// For multi-node deployment, SGLang uses the same template for both leader and worker,
+// with --node-rank distinguishing their roles at runtime.
+func (s *SGLangEngine) GeneratePattern(opts GenerateOptions) (*workloadsv1alpha2.Pattern, error) {
+	podTemplate, err := s.generatePodTemplate(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	if opts.DistributedSize > 1 {
+		// Multi-node deployment using LeaderWorkerPattern
+		return &workloadsv1alpha2.Pattern{
+			LeaderWorkerPattern: &workloadsv1alpha2.LeaderWorkerPattern{
+				Size: &opts.DistributedSize,
+				TemplateSource: workloadsv1alpha2.TemplateSource{
+					Template: podTemplate,
+				},
+				// SGLang doesn't need LeaderTemplatePatch/WorkerTemplatePatch
+				// because leader and worker use the same startup args,
+				// with --node-rank=$(RBG_LWP_WORKER_INDEX) distinguishing roles at runtime.
+			},
+		}, nil
+	}
+
+	// Single-node deployment using StandalonePattern
+	return &workloadsv1alpha2.Pattern{
+		StandalonePattern: &workloadsv1alpha2.StandalonePattern{
+			TemplateSource: workloadsv1alpha2.TemplateSource{
+				Template: podTemplate,
+			},
+		},
+	}, nil
+}
+
+// generatePodTemplate generates the base PodTemplateSpec for SGLang
+func (s *SGLangEngine) generatePodTemplate(opts GenerateOptions) (*corev1.PodTemplateSpec, error) {
 	// Use override image if provided, otherwise use default
 	image := s.Image
 	if opts.Image != "" {

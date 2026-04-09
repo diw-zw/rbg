@@ -56,3 +56,17 @@
       distributed:
         size: 2
       shmSize: "2Gi"
+
+    - name: distributed-vllm-tp
+      description: "vLLM distributed inference - pure tensor parallel across nodes"
+      engine: vllm
+      image: vllm/vllm-openai:nightly
+      resources:
+        nvidia.com/gpu: "2"
+        cpu: "4"
+        memory: "16Gi"
+      args:
+        - "--tensor-parallel-size=2"
+      distributed:
+        size: 2
+      shmSize: "2Gi"
