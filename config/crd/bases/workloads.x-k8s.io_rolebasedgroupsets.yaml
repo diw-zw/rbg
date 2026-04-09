@@ -33680,12 +33680,12 @@ spec:
                                         updates.
                                       x-kubernetes-int-or-string: true
                                     paused:
-                                      description: Paused indicates that the InstanceSet
+                                      description: Paused indicates that the RoleInstanceSet
                                         is paused.
                                       type: boolean
                                     type:
                                       description: |-
-                                        Type indicates the type of the InstanceSetUpdateStrategy.
+                                        Type indicates the type of the RoleInstanceSetUpdateStrategy.
                                         Default is InPlaceIfPossible.
                                       type: string
                                   type: object
@@ -41497,7 +41497,7 @@ spec:
                               description: |-
                                 Workload type specification
                                 Deprecated: This field is deprecated and will be removed in future versions.
-                                The underlying workload will use InstanceSet.
+                                The underlying workload will use RoleInstanceSet.
                               properties:
                                 apiVersion:
                                   default: workloads.x-k8s.io/v1alpha2
