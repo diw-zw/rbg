@@ -32,7 +32,7 @@ func WriteCertsToDir(dir string, certs *generator.Artifacts) error {
 		log.Info("cert directory doesn't exist, creating", "directory", dir)
 		err = os.MkdirAll(dir, 0750)
 		if err != nil {
-			return fmt.Errorf("can't create dir: %v", dir)
+			return fmt.Errorf("can't create dir %s: %w", dir, err)
 		}
 	case err != nil:
 		return err

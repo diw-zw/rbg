@@ -451,7 +451,9 @@ func convertStatusV2ToV1alpha1(src *v2.RoleBasedGroupStatus, dst *RoleBasedGroup
 // (or migration job run during upgrade) is responsible for:
 //  1. Reading spec.coordination from existing v1alpha1 RoleBasedGroups.
 //  2. Creating the corresponding CoordinatedPolicy objects.
-//  3. Removing the preservation annotation once migration is complete.
+//  3. Continuing to treat the preservation annotation as the source of truth until
+//     v1alpha1 support is fully removed, at which point both the annotation and
+//     its associated migration logic can be safely deleted.
 func preserveV1alpha1Fields(src *RoleBasedGroup, dst *v2.RoleBasedGroup) error {
 	if dst.Annotations == nil {
 		dst.Annotations = map[string]string{}

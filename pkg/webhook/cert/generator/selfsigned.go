@@ -62,7 +62,7 @@ func (cp *SelfSignedCertGenerator) SetCA(caKey, caCert []byte) {
 // key for the server. serverKey and serverCert are used by the server
 // to establish trust for clients, CA certificate is used by the
 // client to verify the server authentication chain.
-// The cert will be valid for 365 days.
+// The cert will be valid for 10 years.
 func (cp *SelfSignedCertGenerator) Generate(commonName string) (*Artifacts, error) {
 	var signingKey *rsa.PrivateKey
 	var signingCert *x509.Certificate

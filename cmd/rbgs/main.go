@@ -97,7 +97,6 @@ func main() {
 	var (
 		metricsAddr                                      string
 		metricsCertPath, metricsCertName, metricsCertKey string
-		webhookCertPath, webhookCertName, webhookCertKey string
 		enableLeaderElection                             bool
 		probeAddr                                        string
 		secureMetrics                                    bool
@@ -128,9 +127,6 @@ func main() {
 		&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.",
 	)
-	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
-	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
-	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
 	flag.StringVar(
 		&metricsCertPath, "metrics-cert-path", "",
 		"The directory that contains the metrics server certificate.",
@@ -195,35 +191,11 @@ func main() {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
-	// Create watchers for metrics and webhooks certificates
-	var metricsCertWatcher, webhookCertWatcher *certwatcher.CertWatcher
+	// Create watcher for metrics certificates
+	var metricsCertWatcher *certwatcher.CertWatcher
 
-	// Initial webhook TLS options
+	// Webhook TLS options
 	webhookTLSOpts := tlsOpts
-
-	if len(webhookCertPath) > 0 {
-		setupLog.Info(
-			"Initializing webhook certificate watcher using provided certificates",
-			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key",
-			webhookCertKey,
-		)
-
-		var err error
-		webhookCertWatcher, err = certwatcher.New(
-			filepath.Join(webhookCertPath, webhookCertName),
-			filepath.Join(webhookCertPath, webhookCertKey),
-		)
-		if err != nil {
-			setupLog.Error(err, "Failed to initialize webhook certificate watcher")
-			os.Exit(1)
-		}
-
-		webhookTLSOpts = append(
-			webhookTLSOpts, func(config *tls.Config) {
-				config.GetCertificate = webhookCertWatcher.GetCertificate
-			},
-		)
-	}
 
 	webhookServer := webhook.NewServer(
 		webhook.Options{
@@ -337,11 +309,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Pass the cert directory to the webhook server so it loads our TLS cert.
-	if len(webhookCertPath) == 0 {
-		webhookCertPath = rbgwebhook.WebhookCertDir
-	}
-
 	if err = certMgr.PatchCRDCABundle(ctx, rbgwebhook.ConversionWebhookCRDs(), caCert); err != nil {
 		// Fatal: if the caBundle is not set the API server cannot route conversion
 		// requests to the webhook, causing all v1alpha1<->v1alpha2 conversions to fail.
@@ -447,14 +414,6 @@ func main() {
 		setupLog.Info("Adding metrics certificate watcher to manager")
 		if err := mgr.Add(metricsCertWatcher); err != nil {
 			setupLog.Error(err, "unable to add metrics certificate watcher to manager")
-			os.Exit(1)
-		}
-	}
-
-	if webhookCertWatcher != nil {
-		setupLog.Info("Adding webhook certificate watcher to manager")
-		if err := mgr.Add(webhookCertWatcher); err != nil {
-			setupLog.Error(err, "unable to add webhook certificate watcher to manager")
 			os.Exit(1)
 		}
 	}

@@ -115,11 +115,13 @@ func (s *secretCertWriter) overwrite(resourceVersion string) (
 	secret.ResourceVersion = resourceVersion
 	err = UpdateSecret(s.Client, secret)
 	if err != nil {
-		log.Info("Cert writer update secret failed: %v", err)
+		log.Error(err, "Cert writer update secret failed", "secret", secret.Name)
 		return certs, err
 	}
-	log.Info("Cert writer update secret %s resourceVersion from %s to %s",
-		secret.Name, resourceVersion, secret.ResourceVersion)
+	log.Info("Cert writer update secret succeeded",
+		"secret", secret.Name,
+		"oldResourceVersion", resourceVersion,
+		"newResourceVersion", secret.ResourceVersion)
 	return certs, err
 }
 
