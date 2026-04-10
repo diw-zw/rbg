@@ -314,7 +314,24 @@ func (r *RoleInstanceSetReconciler) constructRoleInstanceTemplateByLeaderWorkerP
 	if lwp == nil {
 		return fmt.Errorf("leaderWorkerPattern is nil")
 	}
-	leaderTemp, err := patchPodTemplate(role.GetTemplate(), lwp.LeaderTemplatePatch)
+
+	// Resolve baseTemplate using shared helper (supports both templateRef and inline template)
+	baseTemplate, err := role.GetResolvedTemplate(rbg)
+	if err != nil {
+		logger.Error(err, "failed to resolve base template", "rbg", keyOfRbg(rbg))
+		return err
+	}
+
+	// Handle nil patches by using empty RawExtension
+	var leaderPatch, workerPatch runtime.RawExtension
+	if lwp.LeaderTemplatePatch != nil {
+		leaderPatch = *lwp.LeaderTemplatePatch
+	}
+	if lwp.WorkerTemplatePatch != nil {
+		workerPatch = *lwp.WorkerTemplatePatch
+	}
+
+	leaderTemp, err := applyStrategicMergePatch(*baseTemplate.DeepCopy(), leaderPatch)
 	if err != nil {
 		logger.Error(err, "patch leader podTemplate failed", "rbg", keyOfRbg(rbg))
 		return err
@@ -324,7 +341,7 @@ func (r *RoleInstanceSetReconciler) constructRoleInstanceTemplateByLeaderWorkerP
 	leaderPodReconciler.SetPodGroupManager(r.podGroupManager)
 	leaderPodReconciler.SetInjectors([]string{"config", "sidecar", "common_env", "lwp_env"})
 	leaderTemplateApplyCfg, err := leaderPodReconciler.ConstructPodTemplateSpecApplyConfiguration(
-		ctx, rbg, role, matchLabels, *leaderTemp,
+		ctx, rbg, role, matchLabels, leaderTemp,
 	)
 	if err != nil {
 		logger.Error(err, "patch Construct PodTemplateSpecApplyConfiguration failed", "rbg", keyOfRbg(rbg))
@@ -332,7 +349,7 @@ func (r *RoleInstanceSetReconciler) constructRoleInstanceTemplateByLeaderWorkerP
 	}
 
 	// workerTemplate
-	workerTemp, err := patchPodTemplate(role.GetTemplate(), lwp.WorkerTemplatePatch)
+	workerTemp, err := applyStrategicMergePatch(*baseTemplate.DeepCopy(), workerPatch)
 	if err != nil {
 		logger.Error(err, "patch worker podTemplate failed", "rbg", keyOfRbg(rbg))
 		return err
@@ -343,7 +360,7 @@ func (r *RoleInstanceSetReconciler) constructRoleInstanceTemplateByLeaderWorkerP
 	// workerTemplate do not need to inject sidecar
 	workerPodReconciler.SetInjectors([]string{"config", "common_env", "lwp_env"})
 	workerTemplateApplyCfg, err := workerPodReconciler.ConstructPodTemplateSpecApplyConfiguration(
-		ctx, rbg, role, matchLabels, *workerTemp,
+		ctx, rbg, role, matchLabels, workerTemp,
 	)
 	if err != nil {
 		logger.Error(err, "patch Construct PodTemplateSpecApplyConfiguration failed", "rbg", keyOfRbg(rbg))

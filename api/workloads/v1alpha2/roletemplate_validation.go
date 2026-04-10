@@ -112,10 +112,11 @@ func validateRoleTemplateFields(
 			)
 		}
 
-		// LWS workload and LeaderWorkerPattern do not support templateRef.
-		if role.Workload.Kind == "LeaderWorkerSet" || role.IsLeaderWorkerPattern() {
+		// LeaderWorkerSet workload does not support templateRef.
+		// Only RoleInstanceSet with LeaderWorkerPattern supports templateRef.
+		if role.Workload.Kind == "LeaderWorkerSet" {
 			return fmt.Errorf(
-				"spec.roles[%d].templateRef: not supported for LeaderWorkerSet/LeaderWorkerPattern workloads (use template with leaderTemplatePatch/workerTemplatePatch instead)",
+				"spec.roles[%d].templateRef: not supported for LeaderWorkerSet workloads (use RoleInstanceSet with LeaderWorkerPattern instead)",
 				index,
 			)
 		}
