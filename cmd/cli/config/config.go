@@ -26,9 +26,11 @@ import (
 )
 
 const (
-	DefaultConfigDir  = ".rbg"
-	DefaultConfigFile = "config"
-	EnvConfigPath     = "RBG_CONFIG"
+	DefaultConfigDir      = ".rbg"
+	DefaultConfigFile     = "config"
+	DefaultModelConfigDir = "models"
+	EnvConfigPath         = "RBG_CONFIG"
+	EnvModelConfigPath    = "RBG_MODEL_CONFIG"
 )
 
 // Config represents the CLI configuration
@@ -84,6 +86,18 @@ func GetConfigPath() string {
 		return ""
 	}
 	return filepath.Join(home, DefaultConfigDir, DefaultConfigFile)
+}
+
+// GetModelConfigDir returns the path to the model config directory
+func GetModelConfigDir() string {
+	if envPath := os.Getenv(EnvModelConfigPath); envPath != "" {
+		return envPath
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, DefaultConfigDir, DefaultModelConfigDir)
 }
 
 // Load loads the configuration from file. It caches the result for subsequent calls.

@@ -88,7 +88,7 @@ type runContext struct {
 // It has no side effects and is independently testable.
 func resolveRunContext(name, modelID string, p RunParams, userCfg *cliconfig.Config) (*runContext, error) {
 	// 1. Load and find model + mode config
-	models, err := runpkg.LoadBuiltinModels()
+	models, err := runpkg.LoadAllModels()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load model configs: %w", err)
 	}

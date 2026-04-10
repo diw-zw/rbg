@@ -41,7 +41,7 @@ $ sudo mv bin/kubectl-rbg /usr/local/bin/
 ```bash
 kubectl rbg llm generate \
   --configurator-tool aiconfigurator \
-  --model QWEN3_32B \
+  --model Qwen/Qwen3.5-9B \
   --system h200_sxm \
   --total-gpus 8 \
   --backend sglang \
@@ -57,7 +57,7 @@ kubectl rbg llm generate \
 ```bash
 kubectl rbg llm generate \
   --configurator-tool aiconfigurator \
-  --model QWEN3_32B \
+  --model Qwen/Qwen3.5-9B \
   --system h200_sxm \
   --total-gpus 8 \
   --backend sglang \
@@ -71,7 +71,7 @@ kubectl rbg llm generate \
 
 #### Required Flags
 
-- `--model`: Model name (e.g., QWEN3_32B, LLAMA3.1_70B)
+- `--model`: Model name (e.g., Qwen/Qwen3.5-9B, meta-llama/Llama-3-70B)
 - `--system`: GPU system type (h100_sxm, a100_sxm, b200_sxm, gb200_sxm, l40s, h200_sxm)
 - `--total-gpus`: Total number of GPUs to use for deployment
 - `--isl`: Input sequence length
@@ -216,7 +216,7 @@ Or visit: https://github.com/ai-dynamo/aiconfigurator
 ### No output directory found
 
 ```text
-Error: no output directory found matching pattern: QWEN3_32B_isl5000_osl1000_ttft1000_tpot10_*
+Error: no output directory found matching pattern: Qwen/Qwen3-32B_isl5000_osl1000_ttft1000_tpot10_*
 ```
 
 **Solution**:
