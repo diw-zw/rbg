@@ -85,7 +85,7 @@ func TestBuildPullJob_Limits(t *testing.T) {
 	tpl := &corev1.PodTemplateSpec{}
 	job := buildPullJob("m", tpl)
 	assert.Equal(t, int32(3), *job.Spec.BackoffLimit)
-	assert.Equal(t, int64(7200), *job.Spec.ActiveDeadlineSeconds)
+	assert.Equal(t, int64(86400), *job.Spec.ActiveDeadlineSeconds)
 	assert.Equal(t, int32(86400), *job.Spec.TTLSecondsAfterFinished)
 }
 

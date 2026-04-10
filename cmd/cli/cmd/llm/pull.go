@@ -295,7 +295,7 @@ const (
 
 	// DefaultPull* constants control Job behavior for model download jobs.
 	DefaultPullBackoffLimit            = int32(3)     // retry up to 3 times on failure
-	DefaultPullActiveDeadlineSeconds   = int64(7200)  // 2 hours max runtime for large models
+	DefaultPullActiveDeadlineSeconds   = int64(86400) // 24 hours max runtime for large models
 	DefaultPullTTLSecondsAfterFinished = int32(86400) // keep job 24 hours after completion
 )
 

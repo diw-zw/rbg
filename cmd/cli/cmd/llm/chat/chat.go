@@ -200,7 +200,7 @@ port-forward tunnel, and communicates over the OpenAI /v1/chat/completions API.`
 
 			// 5. Start port-forward tunnel.
 			fmt.Fprintf(os.Stderr, "Connecting to pod %s...\n", podName)
-			session, err := startPortForward(kubeconfig, namespace, podName, localPort, meta.Port, pfReadyTimeout)
+			session, err := StartPortForward(kubeconfig, namespace, podName, localPort, meta.Port, pfReadyTimeout)
 			if err != nil {
 				return fmt.Errorf("port-forward failed: %w", err)
 			}

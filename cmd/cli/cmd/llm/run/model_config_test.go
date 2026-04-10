@@ -41,8 +41,8 @@ func TestLoadUserModelsFromDirectory(t *testing.T) {
       engine: vllm
       image: vllm/vllm-openai:latest
       resources:
-        gpu: 1
-        cpu: 2
+        nvidia.com/gpu: "1"
+        cpu: "2"
         memory: 8Gi
       args:
         - "--tensor-parallel-size=1"
@@ -51,8 +51,8 @@ func TestLoadUserModelsFromDirectory(t *testing.T) {
       engine: sglang
       image: lmsys/sglang:latest
       resources:
-        gpu: 2
-        cpu: 4
+        nvidia.com/gpu: "2"
+        cpu: "4"
         memory: 16Gi
       args:
         - "--mem-fraction-static=0.9"
@@ -94,8 +94,9 @@ func TestLoadUserModelsFromDirectory(t *testing.T) {
 			if model.Modes[0].Engine != "vllm" {
 				t.Errorf("Expected first mode engine 'vllm', got %q", model.Modes[0].Engine)
 			}
-			if model.Modes[0].Resources.GPU != 1 {
-				t.Errorf("Expected first mode GPU 1, got %d", model.Modes[0].Resources.GPU)
+			// Verify first mode resources (nvidia.com/gpu)
+			if gpu, ok := model.Modes[0].Resources["nvidia.com/gpu"]; !ok || gpu.String() != "1" {
+				t.Errorf("Expected first mode GPU 1, got %v", model.Modes[0].Resources["nvidia.com/gpu"])
 			}
 
 			// Verify second mode
@@ -133,7 +134,7 @@ func TestLoadUserModelsMultipleFiles(t *testing.T) {
       engine: vllm
       image: vllm/vllm-openai:latest
       resources:
-        gpu: 1
+        nvidia.com/gpu: "1"
 `
 	if err := os.WriteFile(modelFile1, []byte(modelContent1), 0600); err != nil {
 		t.Fatalf("Failed to write model file 1: %v", err)
@@ -148,7 +149,7 @@ func TestLoadUserModelsMultipleFiles(t *testing.T) {
       engine: sglang
       image: lmsys/sglang:latest
       resources:
-        gpu: 2
+        nvidia.com/gpu: "2"
 `
 	if err := os.WriteFile(modelFile2, []byte(modelContent2), 0600); err != nil {
 		t.Fatalf("Failed to write model file 2: %v", err)
@@ -208,7 +209,7 @@ func TestLoadUserModelsInvalidFile(t *testing.T) {
       engine: vllm
       image: vllm/vllm-openai:latest
       resources:
-        gpu: 1
+        nvidia.com/gpu: "1"
 `
 	if err := os.WriteFile(validFile, []byte(validContent), 0600); err != nil {
 		t.Fatalf("Failed to write valid file: %v", err)
@@ -257,7 +258,7 @@ func TestLoadAllModelsUserOverridesBuiltin(t *testing.T) {
       engine: vllm
       image: my-custom-image:latest
       resources:
-        gpu: 1
+        nvidia.com/gpu: "1"
 `
 	if err := os.WriteFile(overrideFile, []byte(overrideContent), 0600); err != nil {
 		t.Fatalf("Failed to write override file: %v", err)
@@ -313,7 +314,7 @@ func TestLoadAllModelsUserDuplicate(t *testing.T) {
       engine: vllm
       image: image-a:latest
       resources:
-        gpu: 1
+        nvidia.com/gpu: "1"
 `
 	if err := os.WriteFile(file1, []byte(content1), 0600); err != nil {
 		t.Fatalf("Failed to write file1: %v", err)
@@ -327,7 +328,7 @@ func TestLoadAllModelsUserDuplicate(t *testing.T) {
       engine: vllm
       image: image-b:latest
       resources:
-        gpu: 2
+        nvidia.com/gpu: "2"
 `
 	if err := os.WriteFile(file2, []byte(content2), 0600); err != nil {
 		t.Fatalf("Failed to write file2: %v", err)
@@ -360,8 +361,9 @@ func TestLoadAllModelsUserDuplicate(t *testing.T) {
 	if foundModel.Name != "Definition A" {
 		t.Errorf("Expected first definition 'Definition A', got %q", foundModel.Name)
 	}
-	if foundModel.Modes[0].Resources.GPU != 1 {
-		t.Errorf("Expected first definition GPU 1, got %d", foundModel.Modes[0].Resources.GPU)
+	// Verify resources from first definition (file-a.yaml)
+	if gpu, ok := foundModel.Modes[0].Resources["nvidia.com/gpu"]; !ok || gpu.String() != "1" {
+		t.Errorf("Expected first definition GPU 1, got %v", foundModel.Modes[0].Resources["nvidia.com/gpu"])
 	}
 }
 
@@ -383,7 +385,7 @@ func TestLoadAllModelsMultipleDuplicatesAggregated(t *testing.T) {
       engine: vllm
       image: image-1:latest
       resources:
-        gpu: 1
+        nvidia.com/gpu: "1"
 - id: "my-org/triple-model"
   name: "Definition 2"
   modes:
@@ -391,7 +393,7 @@ func TestLoadAllModelsMultipleDuplicatesAggregated(t *testing.T) {
       engine: vllm
       image: image-2:latest
       resources:
-        gpu: 2
+        nvidia.com/gpu: "2"
 - id: "my-org/triple-model"
   name: "Definition 3"
   modes:
@@ -399,7 +401,7 @@ func TestLoadAllModelsMultipleDuplicatesAggregated(t *testing.T) {
       engine: vllm
       image: image-3:latest
       resources:
-        gpu: 3
+        nvidia.com/gpu: "3"
 `
 	if err := os.WriteFile(file1, []byte(content1), 0600); err != nil {
 		t.Fatalf("Failed to write file1: %v", err)
@@ -432,8 +434,9 @@ func TestLoadAllModelsMultipleDuplicatesAggregated(t *testing.T) {
 	if foundModel.Name != "Definition 1" {
 		t.Errorf("Expected first definition 'Definition 1', got %q", foundModel.Name)
 	}
-	if foundModel.Modes[0].Resources.GPU != 1 {
-		t.Errorf("Expected first definition GPU 1, got %d", foundModel.Modes[0].Resources.GPU)
+	// Verify resources from first definition
+	if gpu, ok := foundModel.Modes[0].Resources["nvidia.com/gpu"]; !ok || gpu.String() != "1" {
+		t.Errorf("Expected first definition GPU 1, got %v", foundModel.Modes[0].Resources["nvidia.com/gpu"])
 	}
 }
 
@@ -451,8 +454,8 @@ func TestLoadAllModelsCustomModelConfigPath(t *testing.T) {
       engine: vllm
       image: vllm/vllm-openai:latest
       resources:
-        gpu: 1
-        cpu: 2
+        nvidia.com/gpu: "1"
+        cpu: "2"
         memory: 8Gi
       args:
         - "--tensor-parallel-size=1"

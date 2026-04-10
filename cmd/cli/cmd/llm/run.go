@@ -17,19 +17,28 @@ limitations under the License.
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/klog/v2"
 
+	"sigs.k8s.io/rbgs/api/workloads/constants"
 	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
+	"sigs.k8s.io/rbgs/cmd/cli/cmd/llm/chat"
 	llmmeta "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/metadata"
 	runpkg "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/run"
 	cliconfig "sigs.k8s.io/rbgs/cmd/cli/config"
@@ -242,13 +251,14 @@ func assembleRBG(name, namespace string, pattern *workloadsv1alpha2.Pattern, met
 	}
 }
 
-// generateRBG generates a RoleBasedGroup and prints summary information.
+// generateRBG generates a RoleBasedGroup.
 // It performs: model config resolution → pattern generation → storage mounting → RBG assembly.
-func generateRBG(name, modelID, namespace string, p RunParams, userCfg *cliconfig.Config, cf *genericclioptions.ConfigFlags) (*workloadsv1alpha2.RoleBasedGroup, error) {
+// Returns the generated RBG and metadata.
+func generateRBG(name, modelID, namespace string, p RunParams, userCfg *cliconfig.Config, cf *genericclioptions.ConfigFlags) (*workloadsv1alpha2.RoleBasedGroup, llmmeta.RunMetadata, error) {
 	// 1. Resolve model/mode/engine config
 	modeRes, err := resolveModeConfig(modelID, p, userCfg)
 	if err != nil {
-		return nil, err
+		return nil, llmmeta.RunMetadata{}, err
 	}
 
 	// 2. Resolve storage and model path
@@ -257,17 +267,17 @@ func generateRBG(name, modelID, namespace string, p RunParams, userCfg *cliconfi
 	// 3. Build GenerateOptions
 	opts, err := buildGenerateOptions(name, modelID, storageRes.modelPath, modeRes.modeCfg, p)
 	if err != nil {
-		return nil, err
+		return nil, llmmeta.RunMetadata{}, err
 	}
 
 	// 4. Generate pattern
 	pattern, err := modeRes.enginePlugin.GeneratePattern(opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate engine pattern: %w", err)
+		return nil, llmmeta.RunMetadata{}, fmt.Errorf("failed to generate engine pattern: %w", err)
 	}
 	podTemplate := getPodTemplateFromPattern(pattern)
 	if podTemplate == nil || len(podTemplate.Spec.Containers) == 0 {
-		return nil, fmt.Errorf("engine %q generated pattern with no containers", modeRes.engineType)
+		return nil, llmmeta.RunMetadata{}, fmt.Errorf("engine %q generated pattern with no containers", modeRes.engineType)
 	}
 
 	// 5. Mount storage
@@ -280,12 +290,12 @@ func generateRBG(name, modelID, namespace string, p RunParams, userCfg *cliconfi
 		if !p.DryRun {
 			c, err := util.GetControllerRuntimeClient(cf)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create controller client: %w", err)
+				return nil, llmmeta.RunMetadata{}, fmt.Errorf("failed to create controller client: %w", err)
 			}
 			mountOpts.Client = c
 		}
 		if err := storageRes.storagePlugin.MountStorage(podTemplate, mountOpts); err != nil {
-			return nil, fmt.Errorf("failed to mount storage: %w", err)
+			return nil, llmmeta.RunMetadata{}, fmt.Errorf("failed to mount storage: %w", err)
 		}
 	}
 
@@ -308,18 +318,19 @@ func generateRBG(name, modelID, namespace string, p RunParams, userCfg *cliconfi
 	// 7. Assemble RBG
 	rbg := assembleRBG(name, namespace, pattern, metadata, p.Replicas)
 
-	// 8. Print summary
-	fmt.Println("# Generated RoleBasedGroup for Model Serving")
-	fmt.Printf("# Name:      %s\n", name)
-	fmt.Printf("# Namespace: %s\n", namespace)
-	fmt.Printf("# Model:     %s\n", modelID)
-	fmt.Printf("# Revision:  %s\n", p.Revision)
-	fmt.Printf("# Mode:      %s\n", modeRes.modeCfg.Name)
-	fmt.Printf("# Engine:    %s\n", modeRes.engineType)
-	fmt.Printf("# Replicas:  %d\n", p.Replicas)
-	fmt.Println("#")
+	return rbg, metadata, nil
+}
 
-	return rbg, nil
+// printGenerateSummary prints a human-readable summary of the generated RBG.
+func printGenerateSummary(w io.Writer, rbg *workloadsv1alpha2.RoleBasedGroup, metadata llmmeta.RunMetadata) {
+	_, _ = fmt.Fprintln(w, "# Generated RoleBasedGroup for Model Serving")
+	_, _ = fmt.Fprintf(w, "# Name:      %s\n", rbg.Name)
+	_, _ = fmt.Fprintf(w, "# Namespace: %s\n", rbg.GetNamespace())
+	_, _ = fmt.Fprintf(w, "# Model:     %s\n", metadata.ModelID)
+	_, _ = fmt.Fprintf(w, "# Revision:  %s\n", metadata.Revision)
+	_, _ = fmt.Fprintf(w, "# Mode:      %s\n", metadata.Mode)
+	_, _ = fmt.Fprintf(w, "# Engine:    %s\n", metadata.Engine)
+	_, _ = fmt.Fprintln(w, "#")
 }
 
 // getPodTemplateFromPattern extracts the pod template from a Pattern
@@ -351,16 +362,213 @@ func createRBG(ctx context.Context, rbg *workloadsv1alpha2.RoleBasedGroup, cf *g
 	return nil
 }
 
+// waitForRBGReady waits for the RBG to be ready (Ready condition status is True)
+func waitForRBGReady(ctx context.Context, name, namespace string, cf *genericclioptions.ConfigFlags, timeout time.Duration) error {
+	client, err := util.GetRBGClient(cf)
+	if err != nil {
+		return fmt.Errorf("failed to create RBG client: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Waiting for RoleBasedGroup '%s' to be ready...\n", name)
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var lastMsg string
+	err = wait.PollUntilContextCancel(ctx, 5*time.Second, true, func(ctx context.Context) (bool, error) {
+		rbg, err := client.WorkloadsV1alpha2().RoleBasedGroups(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+
+		// Check if Ready condition is True
+		for _, cond := range rbg.Status.Conditions {
+			if cond.Type == string(workloadsv1alpha2.RoleBasedGroupReady) {
+				if cond.Status == metav1.ConditionTrue {
+					return true, nil
+				}
+				// Not ready yet, continue polling
+				lastMsg = cond.Message
+				return false, nil
+			}
+		}
+		// Ready condition not found yet, continue polling
+		return false, nil
+	})
+
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("timeout waiting for RoleBasedGroup '%s' to be ready: %s", name, lastMsg)
+		}
+		return fmt.Errorf("failed to wait for RoleBasedGroup ready: %w", err)
+	}
+
+	return nil
+}
+
+// findReadyPod finds a ready pod for the given RBG.
+// For LeaderWorkerPattern (multi-node), only the leader (ComponentIndex=0) serves the API.
+// For StandalonePattern (single-node), ComponentIndex is not set, so we fall back to any ready pod.
+func findReadyPod(ctx context.Context, name, namespace string, cf *genericclioptions.ConfigFlags) (string, error) {
+	k8sClient, err := util.GetK8SClientSet(cf)
+	if err != nil {
+		return "", fmt.Errorf("failed to create Kubernetes client: %w", err)
+	}
+
+	// First try to find a leader pod (ComponentIndex=0) for multi-node deployments
+	leaderSelector := labels.SelectorFromSet(labels.Set{
+		constants.GroupNameLabelKey:      name,
+		constants.RoleNameLabelKey:       "inference",
+		constants.ComponentIndexLabelKey: "0",
+	}).String()
+
+	pods, err := k8sClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: leaderSelector,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to list pods: %w", err)
+	}
+
+	// If no leader pod found, fall back to any pod with the role (for single-node deployments)
+	if len(pods.Items) == 0 {
+		fallbackSelector := labels.SelectorFromSet(labels.Set{
+			constants.GroupNameLabelKey: name,
+			constants.RoleNameLabelKey:  "inference",
+		}).String()
+		pods, err = k8sClient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: fallbackSelector,
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to list pods: %w", err)
+		}
+	}
+
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		if isPodReady(p) {
+			return p.Name, nil
+		}
+	}
+
+	return "", fmt.Errorf("no ready pods found for service %q", name)
+}
+
+// isPodReady checks if a pod is ready
+func isPodReady(pod *corev1.Pod) bool {
+	if pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodReady {
+			return cond.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+// testChatCompletionsWithReconnect tests the API with automatic port-forward reconstruction on disconnect
+// The session is automatically stopped when the function returns (success or error)
+func testChatCompletionsWithReconnect(
+	baseURL, modelName string,
+	timeout time.Duration,
+	pfSession *chat.PortForwardSession,
+	reconnectFunc func() (*chat.PortForwardSession, error),
+) error {
+	reqBody := map[string]interface{}{
+		"model":      modelName,
+		"messages":   []map[string]string{{"role": "user", "content": "Hello"}},
+		"stream":     false,
+		"max_tokens": 10,
+	}
+
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		pfSession.Stop()
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	requestTimeout := 30 * time.Second
+	if timeout < requestTimeout {
+		requestTimeout = timeout
+	}
+
+	client := &http.Client{Timeout: requestTimeout}
+	endpoint := baseURL + "/v1/chat/completions"
+
+	startTime := time.Now()
+	attempt := 0
+	reconnectAttempt := 0
+	currentSession := pfSession
+
+	for {
+		attempt++
+		remaining := timeout - time.Since(startTime)
+		if remaining <= 0 {
+			currentSession.Stop()
+			return fmt.Errorf("timeout waiting for API to be ready after %s", timeout)
+		}
+
+		// Check if port-forward is still alive before making request
+		if !currentSession.IsAlive() {
+			reconnectAttempt++
+			if reconnectAttempt%5 == 1 {
+				fmt.Fprintf(os.Stderr, "  Port-forward disconnected, attempting to reconnect... (attempt %d, elapsed: %s)\n", reconnectAttempt, time.Since(startTime).Round(time.Second))
+			}
+			currentSession.Stop()
+
+			newSession, err := reconnectFunc()
+			if err != nil {
+				return fmt.Errorf("failed to reconnect port-forward: %w", err)
+			}
+			currentSession = newSession
+			if reconnectAttempt%5 == 1 {
+				fmt.Fprintf(os.Stderr, "  Port-forward reconnected successfully\n")
+			}
+		}
+
+		resp, err := client.Post(endpoint, "application/json", bytes.NewReader(data))
+		if err == nil && resp.StatusCode == http.StatusOK {
+			_ = resp.Body.Close()
+			currentSession.Stop()
+			return nil
+		}
+
+		var errMsg string
+		if err != nil {
+			errMsg = fmt.Sprintf("error: %v", err)
+		} else {
+			body, _ := io.ReadAll(resp.Body)
+			errMsg = fmt.Sprintf("status: %d, body: %s", resp.StatusCode, string(body))
+			_ = resp.Body.Close()
+		}
+
+		if attempt%5 == 0 {
+			fmt.Fprintf(os.Stderr, "  API not ready yet (%s), retrying... (attempt %d, elapsed: %s)\n", errMsg, attempt, time.Since(startTime).Round(time.Second))
+		}
+
+		sleepDuration := 5 * time.Second
+		if remaining < sleepDuration {
+			sleepDuration = remaining
+		}
+		time.Sleep(sleepDuration)
+	}
+}
+
 func newRunCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
 	var (
-		replicas int32
-		mode     string
-		engine   string
-		envVars  []string
-		argsList []string
-		storage  string
-		revision string
-		dryRun   bool
+		replicas       int32
+		mode           string
+		engine         string
+		envVars        []string
+		argsList       []string
+		storage        string
+		revision       string
+		dryRun         bool
+		waitReady      bool
+		waitTimeout    time.Duration
+		testAPI        bool
+		testAPITimeout time.Duration
+		localPort      int32
 	)
 
 	cmd := &cobra.Command{
@@ -417,7 +625,7 @@ Examples:
 			}
 
 			// Generate RBG (includes config resolution, pattern generation, storage mounting)
-			rbg, err := generateRBG(name, modelID, namespace, RunParams{
+			params := RunParams{
 				Mode:     mode,
 				Engine:   engine,
 				Storage:  storage,
@@ -426,10 +634,13 @@ Examples:
 				ArgsList: argsList,
 				DryRun:   dryRun,
 				Replicas: replicas,
-			}, userCfg, cf)
+			}
+			rbg, metadata, err := generateRBG(name, modelID, namespace, params, userCfg, cf)
 			if err != nil {
 				return err
 			}
+
+			printGenerateSummary(os.Stdout, rbg, metadata)
 
 			if dryRun {
 				fmt.Println("# DRY RUN: No workload will be created")
@@ -445,6 +656,51 @@ Examples:
 			}
 
 			fmt.Printf("✓ RoleBasedGroup '%s' created successfully in namespace '%s'\n", name, namespace)
+
+			// Wait for RBG to be ready if requested
+			if waitReady || testAPI {
+				if err := waitForRBGReady(ctx, name, namespace, cf, waitTimeout); err != nil {
+					return err
+				}
+				fmt.Printf("✓ RoleBasedGroup '%s' is ready\n", name)
+			}
+
+			// Test API if requested
+			if testAPI {
+				// Find a ready pod
+				podName, err := findReadyPod(ctx, name, namespace, cf)
+				if err != nil {
+					return fmt.Errorf("failed to find ready pod: %w", err)
+				}
+
+				// Get kubeconfig path for port-forward
+				kubeconfig := ""
+				if cf.KubeConfig != nil {
+					kubeconfig = *cf.KubeConfig
+				}
+
+				// Start port-forward
+				fmt.Fprintf(os.Stderr, "Testing API endpoint...\n")
+				pfSession, err := chat.StartPortForward(kubeconfig, namespace, podName, localPort, metadata.Port, 30*time.Second)
+				if err != nil {
+					return fmt.Errorf("failed to start port-forward: %w", err)
+				}
+
+				// Test the API with automatic port-forward reconstruction
+				baseURL := fmt.Sprintf("http://localhost:%d", localPort)
+				if err := testChatCompletionsWithReconnect(baseURL, name, testAPITimeout, pfSession, func() (*chat.PortForwardSession, error) {
+					// Reconnect function: find new ready pod and restart port-forward
+					newPodName, err := findReadyPod(ctx, name, namespace, cf)
+					if err != nil {
+						return nil, err
+					}
+					return chat.StartPortForward(kubeconfig, namespace, newPodName, localPort, metadata.Port, 30*time.Second)
+				}); err != nil {
+					return fmt.Errorf("API test failed: %w", err)
+				}
+				fmt.Printf("✓ API endpoint is ready (/v1/chat/completions)\n")
+			}
+
 			return nil
 		},
 	}
@@ -457,6 +713,11 @@ Examples:
 	cmd.Flags().StringVar(&storage, "storage", "", "Storage to use (overrides default)")
 	cmd.Flags().StringVar(&revision, "revision", "main", "Model revision")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print the generated template without creating the workload")
+	cmd.Flags().BoolVar(&waitReady, "wait", true, "Wait for the RoleBasedGroup to be ready before returning")
+	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 20*time.Minute, "Timeout for waiting for RoleBasedGroup to be ready")
+	cmd.Flags().BoolVar(&testAPI, "test-api", true, "Test the /v1/chat/completions API endpoint after the service is ready")
+	cmd.Flags().DurationVar(&testAPITimeout, "test-api-timeout", 5*time.Minute, "Timeout for testing the API endpoint")
+	cmd.Flags().Int32Var(&localPort, "local-port", 32432, "Local port for port-forward when testing API")
 
 	return cmd
 }

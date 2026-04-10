@@ -18,6 +18,7 @@ package llm
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -27,6 +28,16 @@ import (
 
 	llmmeta "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/metadata"
 )
+
+// TestMain sets up an isolated test environment for all tests in this package.
+// We set RBG_MODEL_CONFIG to a non-existent path to prevent loading user models,
+// ensuring tests only use the built-in models.yaml definitions.
+func TestMain(m *testing.M) {
+	// Set RBG_MODEL_CONFIG to a non-existent path to skip user model loading
+	// This ensures tests use only built-in models, making them deterministic
+	_ = os.Setenv("RBG_MODEL_CONFIG", "/nonexistent/path/for/testing")
+	os.Exit(m.Run())
+}
 
 // --- newRunCmd: command metadata ---
 
@@ -145,7 +156,7 @@ func TestRunEnvVarParsing_EmptyValue(t *testing.T) {
 
 func TestGenerateRBG_DefaultMode_VLLMEngine(t *testing.T) {
 	// Qwen/Qwen3.5-0.8B standard mode uses vllm with port 8000
-	rbg, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
+	rbg, metadata, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Revision: "main",
 		Replicas: 1,
 		DryRun:   true,
@@ -154,18 +165,23 @@ func TestGenerateRBG_DefaultMode_VLLMEngine(t *testing.T) {
 	assert.Equal(t, "my-svc", rbg.Name)
 	assert.Equal(t, "default", rbg.Namespace)
 
-	// Check metadata annotation
-	var metadata llmmeta.RunMetadata
-	err = json.Unmarshal([]byte(rbg.Annotations[llmmeta.RunCommandMetadataAnnotationKey]), &metadata)
-	require.NoError(t, err)
+	// Check returned metadata
 	assert.Equal(t, "vllm", metadata.Engine)
 	assert.Equal(t, "standard", metadata.Mode)
 	assert.Equal(t, int32(8000), metadata.Port)
+
+	// Check metadata annotation
+	var annotationMetadata llmmeta.RunMetadata
+	err = json.Unmarshal([]byte(rbg.Annotations[llmmeta.RunCommandMetadataAnnotationKey]), &annotationMetadata)
+	require.NoError(t, err)
+	assert.Equal(t, "vllm", annotationMetadata.Engine)
+	assert.Equal(t, "standard", annotationMetadata.Mode)
+	assert.Equal(t, int32(8000), annotationMetadata.Port)
 }
 
 func TestGenerateRBG_LatencyMode_SGLangEngine(t *testing.T) {
 	// Qwen/Qwen3.5-0.8B latency mode uses sglang with port 30000
-	rbg, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
+	rbg, metadata, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Mode:     "latency",
 		Revision: "main",
 		Replicas: 1,
@@ -173,17 +189,23 @@ func TestGenerateRBG_LatencyMode_SGLangEngine(t *testing.T) {
 	}, nil, nil)
 	require.NoError(t, err)
 
-	var metadata llmmeta.RunMetadata
-	err = json.Unmarshal([]byte(rbg.Annotations[llmmeta.RunCommandMetadataAnnotationKey]), &metadata)
-	require.NoError(t, err)
+	// Check returned metadata
 	assert.Equal(t, "sglang", metadata.Engine)
 	assert.Equal(t, "latency", metadata.Mode)
 	assert.Equal(t, int32(30000), metadata.Port)
+
+	// Check metadata annotation
+	var annotationMetadata llmmeta.RunMetadata
+	err = json.Unmarshal([]byte(rbg.Annotations[llmmeta.RunCommandMetadataAnnotationKey]), &annotationMetadata)
+	require.NoError(t, err)
+	assert.Equal(t, "sglang", annotationMetadata.Engine)
+	assert.Equal(t, "latency", annotationMetadata.Mode)
+	assert.Equal(t, int32(30000), annotationMetadata.Port)
 }
 
 func TestGenerateRBG_EngineOverride(t *testing.T) {
 	// Engine flag overrides the mode's default engine
-	rbg, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
+	rbg, metadata, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Engine:   "sglang",
 		Revision: "main",
 		Replicas: 1,
@@ -191,14 +213,18 @@ func TestGenerateRBG_EngineOverride(t *testing.T) {
 	}, nil, nil)
 	require.NoError(t, err)
 
-	var metadata llmmeta.RunMetadata
-	err = json.Unmarshal([]byte(rbg.Annotations[llmmeta.RunCommandMetadataAnnotationKey]), &metadata)
-	require.NoError(t, err)
+	// Check returned metadata
 	assert.Equal(t, "sglang", metadata.Engine)
+
+	// Check metadata annotation
+	var annotationMetadata llmmeta.RunMetadata
+	err = json.Unmarshal([]byte(rbg.Annotations[llmmeta.RunCommandMetadataAnnotationKey]), &annotationMetadata)
+	require.NoError(t, err)
+	assert.Equal(t, "sglang", annotationMetadata.Engine)
 }
 
 func TestGenerateRBG_EnvVarInjection(t *testing.T) {
-	rbg, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
+	rbg, _, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Revision: "main",
 		EnvVars:  []string{"MY_KEY=my_value"},
 		Replicas: 1,
@@ -215,7 +241,7 @@ func TestGenerateRBG_EnvVarInjection(t *testing.T) {
 }
 
 func TestGenerateRBG_InvalidEnvVar(t *testing.T) {
-	_, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
+	_, _, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Revision: "main",
 		EnvVars:  []string{"NOEQUALSSIGN"},
 		Replicas: 1,
@@ -227,7 +253,7 @@ func TestGenerateRBG_InvalidEnvVar(t *testing.T) {
 
 func TestGenerateRBG_UnknownModel(t *testing.T) {
 	// Unknown model should return error when no wildcard config exists
-	_, err := generateRBG("my-svc", "unknown/unknown-model", "default", RunParams{
+	_, _, err := generateRBG("my-svc", "unknown/unknown-model", "default", RunParams{
 		Revision: "main",
 		Replicas: 1,
 		DryRun:   true,
@@ -237,7 +263,7 @@ func TestGenerateRBG_UnknownModel(t *testing.T) {
 }
 
 func TestGenerateRBG_UnknownEngine_Errors(t *testing.T) {
-	_, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
+	_, _, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Engine:   "nonexistent-engine",
 		Revision: "main",
 		Replicas: 1,
@@ -248,7 +274,7 @@ func TestGenerateRBG_UnknownEngine_Errors(t *testing.T) {
 }
 
 func TestGenerateRBG_AdditionalArgs(t *testing.T) {
-	rbg, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
+	rbg, _, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Revision: "main",
 		ArgsList: []string{"--custom-flag", "value"},
 		Replicas: 1,
@@ -264,7 +290,7 @@ func TestGenerateRBG_AdditionalArgs(t *testing.T) {
 
 func TestGenerateRBG_FallbackModelPath(t *testing.T) {
 	// Without storage config, model path uses the /model/ fallback
-	rbg, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
+	rbg, _, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
 		Revision: "main",
 		Replicas: 1,
 		DryRun:   true,

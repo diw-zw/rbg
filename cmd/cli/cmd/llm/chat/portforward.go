@@ -25,18 +25,20 @@ import (
 	"time"
 )
 
-// portForwardSession manages a kubectl port-forward subprocess lifetime.
-type portForwardSession struct {
+// PortForwardSession manages a kubectl port-forward subprocess lifetime.
+type PortForwardSession struct {
 	cmd      *exec.Cmd
-	stopChan chan struct{}
-	doneChan chan error
+	exitChan chan struct{} // closed when process exits, broadcasts to all waiters
+	mu       sync.RWMutex
+	alive    bool
+	stopped  bool
 }
 
-// startPortForward spawns a kubectl port-forward to the given pod and waits
+// StartPortForward spawns a kubectl port-forward to the given pod and waits
 // until the tunnel is ready (or returns an error). readyTimeout controls how
 // long to wait for the "Forwarding from" confirmation line. The caller must
 // call Stop() when the session is no longer needed.
-func startPortForward(kubeconfig, namespace, podName string, localPort, remotePort int32, readyTimeout time.Duration) (*portForwardSession, error) {
+func StartPortForward(kubeconfig, namespace, podName string, localPort, remotePort int32, readyTimeout time.Duration) (*PortForwardSession, error) {
 	args := []string{
 		"port-forward",
 		"-n", namespace,
@@ -62,8 +64,7 @@ func startPortForward(kubeconfig, namespace, podName string, localPort, remotePo
 		return nil, fmt.Errorf("port-forward start: %w", err)
 	}
 
-	stopChan := make(chan struct{})
-	doneChan := make(chan error, 1)
+	exitChan := make(chan struct{})
 	readyChan := make(chan struct{})
 
 	// Capture stderr so it can be included in error messages on failure.
@@ -97,25 +98,23 @@ func startPortForward(kubeconfig, namespace, podName string, localPort, remotePo
 		}
 	}()
 
-	// Stop goroutine: kill process when stopChan is closed.
+	// Monitor goroutine: wait for process to exit and close exitChan.
+	// This is the ONLY goroutine that calls cmd.Wait().
+	// Closing exitChan broadcasts to all waiters (Stop() and alive monitor).
 	go func() {
-		<-stopChan
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-	}()
-
-	// Wait goroutine: relay exit error to doneChan.
-	go func() {
-		doneChan <- cmd.Wait()
+		_ = cmd.Wait()
+		close(exitChan)
 	}()
 
 	// Wait for ready signal, process exit, or timeout.
 	select {
 	case <-readyChan:
 		// Tunnel is up.
-	case err := <-doneChan:
-		if err == nil {
+	case <-exitChan:
+		var err error
+		if cmd.ProcessState != nil && !cmd.ProcessState.Success() {
+			err = fmt.Errorf("port-forward exited with code %d", cmd.ProcessState.ExitCode())
+		} else {
 			err = fmt.Errorf("port-forward exited unexpectedly")
 		}
 		stderrMu.Lock()
@@ -126,24 +125,53 @@ func startPortForward(kubeconfig, namespace, podName string, localPort, remotePo
 		}
 		return nil, fmt.Errorf("port-forward failed before becoming ready: %w", err)
 	case <-time.After(readyTimeout):
-		close(stopChan)
+		// Kill the process on timeout
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
 		return nil, fmt.Errorf("timeout waiting for port-forward to become ready")
 	}
 
-	return &portForwardSession{
+	session := &PortForwardSession{
 		cmd:      cmd,
-		stopChan: stopChan,
-		doneChan: doneChan,
-	}, nil
+		exitChan: exitChan,
+		alive:    true,
+	}
+
+	// Update alive status when process exits
+	go func() {
+		<-exitChan
+		session.mu.Lock()
+		session.alive = false
+		session.mu.Unlock()
+	}()
+
+	return session, nil
+}
+
+// IsAlive returns true if the port-forward process is still running.
+func (s *PortForwardSession) IsAlive() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.alive
 }
 
 // Stop terminates the port-forward subprocess.
-func (s *portForwardSession) Stop() {
-	select {
-	case <-s.stopChan:
-		// Already stopped.
-	default:
-		close(s.stopChan)
+func (s *PortForwardSession) Stop() {
+	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
+		return
 	}
-	<-s.doneChan
+	s.stopped = true
+	s.mu.Unlock()
+
+	// Kill the process if it's still running
+	if s.cmd.Process != nil {
+		_ = s.cmd.Process.Kill()
+	}
+
+	// Wait for process to exit (exitChan closed by monitor goroutine)
+	// Multiple goroutines can safely receive from a closed channel.
+	<-s.exitChan
 }
