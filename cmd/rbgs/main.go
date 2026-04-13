@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -32,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	lwsv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
+	workloadsv1alpha1 "sigs.k8s.io/rbgs/api/workloads/v1alpha1"
 	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
 	portallocator "sigs.k8s.io/rbgs/pkg/port-allocator"
 	schev1alpha1 "sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1"
@@ -56,6 +58,7 @@ import (
 	workloadscontroller "sigs.k8s.io/rbgs/internal/controller/workloads"
 	"sigs.k8s.io/rbgs/pkg/scheduler"
 	"sigs.k8s.io/rbgs/pkg/utils/fieldindex"
+	rbgwebhook "sigs.k8s.io/rbgs/pkg/webhook"
 	"sigs.k8s.io/rbgs/version"
 	// +kubebuilder:scaffold:imports
 )
@@ -73,6 +76,7 @@ func init() {
 	utilruntime.Must(volcanoschedulingv1beta1.AddToScheme(scheme))
 
 	utilruntime.Must(workloadsv1alpha2.AddToScheme(scheme))
+	utilruntime.Must(workloadsv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(workloadsv1alpha2.AddToScheme(clientgoscheme.Scheme))
 	// +kubebuilder:scaffold:scheme
 }
@@ -93,7 +97,6 @@ func main() {
 	var (
 		metricsAddr                                      string
 		metricsCertPath, metricsCertName, metricsCertKey string
-		webhookCertPath, webhookCertName, webhookCertKey string
 		enableLeaderElection                             bool
 		probeAddr                                        string
 		secureMetrics                                    bool
@@ -124,9 +127,6 @@ func main() {
 		&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.",
 	)
-	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
-	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
-	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
 	flag.StringVar(
 		&metricsCertPath, "metrics-cert-path", "",
 		"The directory that contains the metrics server certificate.",
@@ -152,7 +152,6 @@ func main() {
 		"The scheduler name to use for gang scheduling. Supported values: scheduler-plugins, volcano. "+
 			"Defaults to scheduler-plugins.",
 	)
-
 	flag.Parse()
 	opts := zap.Options{
 		Development: development,
@@ -192,38 +191,15 @@ func main() {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
-	// Create watchers for metrics and webhooks certificates
-	var metricsCertWatcher, webhookCertWatcher *certwatcher.CertWatcher
+	// Create watcher for metrics certificates
+	var metricsCertWatcher *certwatcher.CertWatcher
 
-	// Initial webhook TLS options
+	// Webhook TLS options
 	webhookTLSOpts := tlsOpts
-
-	if len(webhookCertPath) > 0 {
-		setupLog.Info(
-			"Initializing webhook certificate watcher using provided certificates",
-			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key",
-			webhookCertKey,
-		)
-
-		var err error
-		webhookCertWatcher, err = certwatcher.New(
-			filepath.Join(webhookCertPath, webhookCertName),
-			filepath.Join(webhookCertPath, webhookCertKey),
-		)
-		if err != nil {
-			setupLog.Error(err, "Failed to initialize webhook certificate watcher")
-			os.Exit(1)
-		}
-
-		webhookTLSOpts = append(
-			webhookTLSOpts, func(config *tls.Config) {
-				config.GetCertificate = webhookCertWatcher.GetCertificate
-			},
-		)
-	}
 
 	webhookServer := webhook.NewServer(
 		webhook.Options{
+			CertDir: rbgwebhook.WebhookCertDir,
 			TLSOpts: webhookTLSOpts,
 		},
 	)
@@ -299,6 +275,57 @@ func main() {
 		CacheSyncTimeout:        cacheSyncTimeout,
 	}
 
+	// ---------------------------------------------------------------------------
+	// Self-signed TLS certificate bootstrap for the conversion webhook.
+	// Generates (or loads) a cert stored in a Secret, writes it to WebhookCertDir
+	// so the webhook server can serve HTTPS, and patches the caBundle on the CRDs.
+	// ---------------------------------------------------------------------------
+	webhookServiceNamespace := os.Getenv("POD_NAMESPACE")
+	if webhookServiceNamespace == "" {
+		setupLog.Info("WARNING: POD_NAMESPACE env not found; caBundle patching may fail")
+	}
+
+	// Use a direct (non-cached) client for cert bootstrap: mgr.GetClient() uses
+	// the informer cache which is not started until mgr.Start(), so it cannot
+	// serve reads at this point in startup.
+	directClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
+	if err != nil {
+		setupLog.Error(err, "unable to create direct client for cert bootstrap")
+		os.Exit(1)
+	}
+
+	certMgr, err := rbgwebhook.NewCertManager(directClient, rbgwebhook.WebhookCertSecretName, webhookServiceNamespace)
+	if err != nil {
+		setupLog.Error(err, "unable to create webhook cert manager")
+		os.Exit(1)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	caCert, err := certMgr.BuildOrSync(ctx, webhookServiceNamespace, rbgwebhook.WebhookServiceName, rbgwebhook.WebhookCertDir)
+	if err != nil {
+		setupLog.Error(err, "unable to provision webhook TLS certificate")
+		os.Exit(1)
+	}
+
+	if err = certMgr.PatchCRDCABundle(ctx, rbgwebhook.ConversionWebhookCRDs(), caCert); err != nil {
+		// Fatal: if the caBundle is not set the API server cannot route conversion
+		// requests to the webhook, causing all v1alpha1<->v1alpha2 conversions to fail.
+		setupLog.Error(err, "unable to patch caBundle on conversion CRDs")
+		os.Exit(1)
+	}
+
+	// Register conversion webhooks so the API server can convert between v1alpha1 and v1alpha2.
+	if err = (&workloadsv1alpha2.RoleBasedGroup{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create conversion webhook", "webhook", "RoleBasedGroup")
+		os.Exit(1)
+	}
+	if err = (&workloadsv1alpha2.RoleBasedGroupSet{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create conversion webhook", "webhook", "RoleBasedGroupSet")
+		os.Exit(1)
+	}
+
 	rbgReconciler, err := workloadscontroller.NewRoleBasedGroupReconciler(mgr, scheduler.SchedulerPluginType(schedulerName))
 	if err != nil {
 		setupLog.Error(err, "unable to create rbg controller", "controller", "RoleBasedGroup")
@@ -369,19 +396,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Webhook cert controller: watches the conversion-webhook CRDs and keeps
+	// caBundle in sync with the self-signed CA certificate.
+	webhookCertReconciler := &workloadscontroller.WebhookCertReconciler{
+		Client:      mgr.GetClient(),
+		CertManager: certMgr,
+		CACert:      caCert,
+		CRDNames:    rbgwebhook.ConversionWebhookCRDs(),
+	}
+	if err = webhookCertReconciler.SetupWithManager(mgr, options); err != nil {
+		setupLog.Error(err, "unable to create webhook cert controller")
+		os.Exit(1)
+	}
+
 	// +kubebuilder:scaffold:builder
 	if metricsCertWatcher != nil {
 		setupLog.Info("Adding metrics certificate watcher to manager")
 		if err := mgr.Add(metricsCertWatcher); err != nil {
 			setupLog.Error(err, "unable to add metrics certificate watcher to manager")
-			os.Exit(1)
-		}
-	}
-
-	if webhookCertWatcher != nil {
-		setupLog.Info("Adding webhook certificate watcher to manager")
-		if err := mgr.Add(webhookCertWatcher); err != nil {
-			setupLog.Error(err, "unable to add webhook certificate watcher to manager")
 			os.Exit(1)
 		}
 	}
