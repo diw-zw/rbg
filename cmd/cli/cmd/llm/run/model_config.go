@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	cliconfig "sigs.k8s.io/rbgs/cmd/cli/config"
 	"sigs.k8s.io/yaml"
 )
@@ -37,26 +38,21 @@ type ModelConfig struct {
 
 // ModeConfig describes a single run mode for a model.
 type ModeConfig struct {
-	Name        string         `yaml:"name"`
-	Description string         `yaml:"description"`
-	Engine      string         `yaml:"engine"`
-	Image       string         `yaml:"image"`
-	Resources   ResourceConfig `yaml:"resources"`
-	Args        []string       `yaml:"args"`
-	Env         []EnvVar       `yaml:"env"`
+	Name        string              `yaml:"name"`
+	Description string              `yaml:"description"`
+	Engine      string              `yaml:"engine"`
+	Image       string              `yaml:"image"`
+	Resources   corev1.ResourceList `yaml:"resources"`
+	Args        []string            `yaml:"args"`
+	Env         []corev1.EnvVar     `yaml:"env"`
+	Distributed *DistributedConfig  `yaml:"distributed,omitempty"` // Multi-node deployment config
+	ShmSize     string              `yaml:"shmSize,omitempty"`     // Shared memory size (e.g., "8Gi", "16Gi")
 }
 
-// ResourceConfig describes compute resources for a mode.
-type ResourceConfig struct {
-	GPU    int    `yaml:"gpu"`
-	CPU    int    `yaml:"cpu"`
-	Memory string `yaml:"memory"`
-}
-
-// EnvVar describes an environment variable.
-type EnvVar struct {
-	Name  string `yaml:"name"`
-	Value string `yaml:"value"`
+// DistributedConfig describes multi-node deployment configuration.
+// Size > 1 enables leader-worker pattern for distributed inference.
+type DistributedConfig struct {
+	Size int32 `yaml:"size"` // Total nodes (1 leader + N workers)
 }
 
 // modelWithSource tracks a model config and its source file

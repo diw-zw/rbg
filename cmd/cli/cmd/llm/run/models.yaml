@@ -1,3 +1,4 @@
+# TODO: Add more models and modes
 - id: "Qwen/Qwen3.5-0.8B"
   name: "Qwen 3.5 0.8B"
   modes:
@@ -6,9 +7,9 @@
       engine: vllm
       image: vllm/vllm-openai:nightly
       resources:
-        gpu: 1
-        cpu: 4
-        memory: 16Gi
+        nvidia.com/gpu: "1"
+        cpu: "4"
+        memory: "16Gi"
       args:
         - "--tensor-parallel-size=1"
         - "--max-model-len=8192"
@@ -21,9 +22,9 @@
       engine: vllm
       image: vllm/vllm-openai:nightly
       resources:
-        gpu: 2
-        cpu: 8
-        memory: 32Gi
+        nvidia.com/gpu: "2"
+        cpu: "8"
+        memory: "32Gi"
       args:
         - "--tensor-parallel-size=2"
         - "--max-model-len=16384"
@@ -33,38 +34,39 @@
     - name: latency
       description: "Minimize latency, suitable for real-time inference"
       engine: sglang
-      image: lmsys/sglang:latest
+      image: lmsysorg/sglang:latest
       resources:
-        gpu: 1
-        cpu: 4
-        memory: 16Gi
+        nvidia.com/gpu: "1"
+        cpu: "4"
+        memory: "16Gi"
       args:
         - "--mem-fraction-static=0.8"
         - "--max-prefill-tokens=16384"
 
-- id: "Qwen/*"
-  name: "Qwen Series Models"
-  modes:
-    - name: standard
-      description: "Standard config for Qwen series"
+    - name: distributed-tp2
+      description: "Distributed inference with tensor parallel size 2 on 2 nodes"
+      engine: sglang
+      image: lmsysorg/sglang:latest
+      resources:
+        nvidia.com/gpu: "1"
+        cpu: "4"
+        memory: "16Gi"
+      args:
+        - "--tp-size=2"
+      distributed:
+        size: 2
+      shmSize: "2Gi"
+
+    - name: distributed-vllm-tp
+      description: "vLLM distributed inference - pure tensor parallel across nodes"
       engine: vllm
       image: vllm/vllm-openai:nightly
       resources:
-        gpu: 1
-        cpu: 4
-        memory: 32Gi
+        nvidia.com/gpu: "2"
+        cpu: "4"
+        memory: "16Gi"
       args:
-        - "--tensor-parallel-size=1"
-
-- id: "*"
-  name: "Default Config"
-  modes:
-    - name: standard
-      description: "Default standard config"
-      engine: vllm
-      image: vllm/vllm-openai:latest
-      resources:
-        gpu: 1
-        cpu: 2
-        memory: 16Gi
-      args: []
+        - "--tensor-parallel-size=2"
+      distributed:
+        size: 2
+      shmSize: "2Gi"

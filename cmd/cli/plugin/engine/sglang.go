@@ -17,7 +17,11 @@ limitations under the License.
 package engine
 
 import (
+	"fmt"
+
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
 	"sigs.k8s.io/rbgs/cmd/cli/plugin/util"
 )
 
@@ -61,36 +65,123 @@ func (s *SGLangEngine) Init(config map[string]interface{}) error {
 	return nil
 }
 
-// GenerateTemplate generates a pod template for running SGLang
-func (s *SGLangEngine) GenerateTemplate(name string, modelID string, modelPath string) (*corev1.PodTemplateSpec, error) {
-	return &corev1.PodTemplateSpec{
+// GeneratePattern generates a Pattern for running SGLang.
+// For multi-node deployment, SGLang uses the same template for both leader and worker,
+// with --node-rank distinguishing their roles at runtime.
+func (s *SGLangEngine) GeneratePattern(opts GenerateOptions) (*workloadsv1alpha2.Pattern, error) {
+	podTemplate, err := s.generatePodTemplate(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	if opts.DistributedSize > 1 {
+		// Multi-node deployment using LeaderWorkerPattern
+		return &workloadsv1alpha2.Pattern{
+			LeaderWorkerPattern: &workloadsv1alpha2.LeaderWorkerPattern{
+				Size: &opts.DistributedSize,
+				TemplateSource: workloadsv1alpha2.TemplateSource{
+					Template: podTemplate,
+				},
+				// SGLang doesn't need LeaderTemplatePatch/WorkerTemplatePatch
+				// because leader and worker use the same startup args,
+				// with --node-rank=$(RBG_LWP_WORKER_INDEX) distinguishing roles at runtime.
+			},
+		}, nil
+	}
+
+	// Single-node deployment using StandalonePattern
+	return &workloadsv1alpha2.Pattern{
+		StandalonePattern: &workloadsv1alpha2.StandalonePattern{
+			TemplateSource: workloadsv1alpha2.TemplateSource{
+				Template: podTemplate,
+			},
+		},
+	}, nil
+}
+
+// generatePodTemplate generates the base PodTemplateSpec for SGLang
+func (s *SGLangEngine) generatePodTemplate(opts GenerateOptions) (*corev1.PodTemplateSpec, error) {
+	// Use override image if provided, otherwise use default
+	image := s.Image
+	if opts.Image != "" {
+		image = opts.Image
+	}
+
+	// Build base args
+	args := []string{
+		"--model-path",
+		opts.ModelPath,
+		"--served-model-name",
+		opts.Name,
+	}
+
+	// Add distributed deployment args for multi-node setup
+	if opts.DistributedSize > 1 {
+		args = append(args,
+			"--dist-init-addr=$(RBG_LWP_LEADER_ADDRESS):6379",
+			"--nnodes=$(RBG_LWP_GROUP_SIZE)",
+			"--node-rank=$(RBG_LWP_WORKER_INDEX)",
+		)
+	}
+
+	// Add user-provided args
+	args = append(args, opts.Args...)
+
+	// Build env vars
+	env := []corev1.EnvVar{
+		{
+			Name:  "SGLANG_MODEL_PATH",
+			Value: opts.ModelPath,
+		},
+	}
+	env = append(env, opts.Env...)
+
+	podSpec := &corev1.PodTemplateSpec{
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
 					Name:            "sglang",
-					Image:           s.Image,
+					Image:           image,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Command:         []string{"python", "-m", "sglang.launch_server"},
-					Args: []string{
-						"--model-path",
-						modelPath,
-						"--model-name",
-						name,
-					},
+					Args:            args,
 					Ports: []corev1.ContainerPort{
 						{
 							Name:          "http",
 							ContainerPort: s.Port,
 						},
 					},
-					Env: []corev1.EnvVar{
-						{
-							Name:  "SGLANG_MODEL_PATH",
-							Value: modelPath,
-						},
-					},
+					Env:       env,
+					Resources: opts.Resources,
 				},
 			},
 		},
-	}, nil
+	}
+
+	// Add shared memory volume if ShmSize is specified
+	if opts.ShmSize != "" {
+		shmQuantity, err := resource.ParseQuantity(opts.ShmSize)
+		if err != nil {
+			return nil, fmt.Errorf("invalid shmSize %q: %w", opts.ShmSize, err)
+		}
+
+		// Add volume to pod
+		podSpec.Spec.Volumes = append(podSpec.Spec.Volumes, corev1.Volume{
+			Name: "shm",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{
+					Medium:    corev1.StorageMediumMemory,
+					SizeLimit: &shmQuantity,
+				},
+			},
+		})
+
+		// Add volume mount to container
+		podSpec.Spec.Containers[0].VolumeMounts = append(podSpec.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "shm",
+			MountPath: "/dev/shm",
+		})
+	}
+
+	return podSpec, nil
 }

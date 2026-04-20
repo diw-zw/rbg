@@ -20,8 +20,22 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
 	"sigs.k8s.io/rbgs/cmd/cli/plugin/util"
 )
+
+// GenerateOptions contains all information needed to generate a pod template.
+type GenerateOptions struct {
+	Name            string
+	ModelID         string
+	ModelPath       string
+	Image           string          // Override image (empty to use default)
+	Args            []string        // Additional arguments
+	Env             []corev1.EnvVar // Additional environment variables
+	Resources       corev1.ResourceRequirements
+	DistributedSize int32  // Multi-node deployment size, <=1 means standalone
+	ShmSize         string // Shared memory size (e.g., "8Gi", "16Gi"), empty means no shared memory
+}
 
 // Plugin defines the interface for inference engines.
 type Plugin interface {
@@ -33,8 +47,11 @@ type Plugin interface {
 	// Init initializes the engine with credentials/config.
 	Init(config map[string]interface{}) error
 
-	// GenerateTemplate generates a PodTemplateSpec used to start the model engine.
-	GenerateTemplate(name string, modelID string, modelPath string) (*corev1.PodTemplateSpec, error)
+	// GeneratePattern generates a complete Pattern for the model engine.
+	// The returned Pattern can be either:
+	// - StandalonePattern for single-node deployment
+	// - LeaderWorkerPattern for multi-node deployment (with LeaderTemplatePatch/WorkerTemplatePatch if needed)
+	GeneratePattern(opts GenerateOptions) (*workloadsv1alpha2.Pattern, error)
 }
 
 // Factory is a constructor for an engine plugin.

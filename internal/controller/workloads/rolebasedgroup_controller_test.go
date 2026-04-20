@@ -850,8 +850,8 @@ func TestRoleBasedGroupReconciler_ReconcileScalingAdapter_Labels(t *testing.T) {
 				"kwota.meta.com/quota-allocation":      "my-qa",
 				"kwota.meta.com/workload-variant":      "gb200",
 				"kwota.meta.com/workload-variant-type": "Standalone",
-				constants.GroupNameLabelKey:             "test-rbg",
-				constants.RoleNameLabelKey:              "engine",
+				constants.GroupNameLabelKey:            "test-rbg",
+				constants.RoleNameLabelKey:             "engine",
 			},
 		},
 		{
@@ -863,14 +863,14 @@ func TestRoleBasedGroupReconciler_ReconcileScalingAdapter_Labels(t *testing.T) {
 					Labels: map[string]string{
 						constants.GroupNameLabelKey: "user-override-attempt",
 						constants.RoleNameLabelKey:  "user-override-attempt",
-						"custom-label":             "custom-value",
+						"custom-label":              "custom-value",
 					},
 				},
 			},
 			wantLabels: map[string]string{
 				constants.GroupNameLabelKey: "test-rbg",
 				constants.RoleNameLabelKey:  "engine",
-				"custom-label":             "custom-value",
+				"custom-label":              "custom-value",
 			},
 		},
 		{
@@ -999,8 +999,8 @@ func TestRoleBasedGroupReconciler_ReconcileScalingAdapter_LabelUpdate(t *testing
 	wantLabels := map[string]string{
 		"kwota.meta.com/quota-allocation": "my-qa",
 		"kwota.meta.com/workload-variant": "gb200",
-		constants.GroupNameLabelKey:        rbg.Name,
-		constants.RoleNameLabelKey:         roleName,
+		constants.GroupNameLabelKey:       rbg.Name,
+		constants.RoleNameLabelKey:        roleName,
 	}
 	if len(updated.Labels) != len(wantLabels) {
 		t.Errorf("expected %d labels, got %d: %v", len(wantLabels), len(updated.Labels), updated.Labels)
