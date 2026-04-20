@@ -39,7 +39,7 @@ func NewLLMCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
 	}
 
 	// Add subcommands
-	cmd.AddCommand(config.NewConfigCmd())
+	cmd.AddCommand(config.NewConfigCmd(cf))
 	cmd.AddCommand(generate.NewGenerateCmd())
 	cmd.AddCommand(benchmark.NewBenchmarkCmd(cf))
 	cmd.AddCommand(newPullCmd(cf))

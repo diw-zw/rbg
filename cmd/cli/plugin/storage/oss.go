@@ -44,8 +44,8 @@ type OSSStorage struct {
 	url         string
 	bucket      string
 	subpath     string
-	akId        string
-	akSecret    string
+	// secretRef references the Kubernetes Secret containing OSS credentials
+	secretRef *corev1.SecretReference
 }
 
 // Name returns the plugin name
@@ -54,41 +54,57 @@ func (o *OSSStorage) Name() string {
 }
 
 // ConfigFields returns the config fields this plugin accepts
+// Note: akId and akSecret are only required during initial configuration (add-storage).
+// After PreAdd processes the config, they are replaced with secretRef.
 func (o *OSSStorage) ConfigFields() []util.ConfigField {
 	return []util.ConfigField{
 		{Key: "url", Description: "OSS endpoint URL (e.g., oss-cn-hangzhou.aliyuncs.com)", Required: true},
 		{Key: "bucket", Description: "OSS bucket name", Required: true},
 		{Key: "subpath", Description: "subpath within the bucket", Required: false},
-		{Key: "akId", Description: "Alibaba Cloud AccessKey ID", Required: true},
-		{Key: "akSecret", Description: "Alibaba Cloud AccessKey Secret", Required: true, Masked: util.MaskAll},
+		{Key: "akId", Description: "Alibaba Cloud AccessKey ID (only needed during add-storage)", Required: false},
+		{Key: "akSecret", Description: "Alibaba Cloud AccessKey Secret (only needed during add-storage)", Required: false, Masked: util.MaskAll},
 	}
 }
 
-// Init initializes the plugin with config
+// Init initializes the plugin with config.
+// The config can contain either:
+// 1. Direct credentials (akId, akSecret) - used during add-storage before PreAdd is called
+// 2. secretRef - used after PreAdd has processed the config
 func (o *OSSStorage) Init(config map[string]interface{}) error {
-	var ok bool
-
 	o.storageSize = "1Ti"
-	if o.url, ok = config["url"].(string); !ok || o.url == "" {
+
+	if url, ok := config["url"].(string); !ok || url == "" {
 		return fmt.Errorf("url is required in storage config for oss type")
+	} else {
+		o.url = url
 	}
-	if o.bucket, ok = config["bucket"].(string); !ok || o.bucket == "" {
+
+	if bucket, ok := config["bucket"].(string); !ok || bucket == "" {
 		return fmt.Errorf("bucket is required in storage config for oss type")
+	} else {
+		o.bucket = bucket
 	}
+
 	// subpath is optional
 	o.subpath, _ = config["subpath"].(string)
 	if o.subpath == "" {
 		o.subpath = "/"
 	}
 
-	if o.akId, ok = config["akId"].(string); !ok || o.akId == "" {
-		return fmt.Errorf("akId is required in storage config for oss type")
-	}
-	if o.akSecret, ok = config["akSecret"].(string); !ok || o.akSecret == "" {
-		return fmt.Errorf("akSecret is required in storage config for oss type")
+	// Check for secretRef (required after PreAdd)
+	if secretRefMap, ok := config["secretRef"].(map[string]interface{}); ok {
+		secretName, nameOk := secretRefMap["name"].(string)
+		secretNamespace, nsOk := secretRefMap["namespace"].(string)
+		if nameOk && nsOk && secretName != "" && secretNamespace != "" {
+			o.secretRef = &corev1.SecretReference{
+				Name:      secretName,
+				Namespace: secretNamespace,
+			}
+			return nil
+		}
 	}
 
-	return nil
+	return fmt.Errorf("secretRef is required in storage config for oss type")
 }
 
 // Exists checks if the model exists in storage
@@ -97,20 +113,25 @@ func (o *OSSStorage) Exists(modelID string) (bool, error) {
 	return false, nil
 }
 
-// PreMount creates Secret, PV and PVC resources if they don't exist
+// PreMount verifies PV and PVC resources exist. Secret is expected to already exist
+// (created by PreAdd) and is referenced via secretRef.
 func (o *OSSStorage) preMount(c client.Client, storageName, namespace string) error {
 	ctx := context.Background()
-	secretName := o.secretName(storageName)
 	pvName := storageName
 	pvcName := storageName
 
-	// Step 1: Create or verify Secret
-	if err := o.createOrVerifySecret(ctx, c, secretName, namespace); err != nil {
-		return fmt.Errorf("failed to create/verify secret: %w", err)
+	// Verify secretRef is set
+	if o.secretRef == nil {
+		return fmt.Errorf("secretRef is not set, PreAdd must be called before MountStorage")
+	}
+
+	// Step 1: Verify Secret exists (created by PreAdd)
+	if err := o.verifySecretExists(ctx, c); err != nil {
+		return fmt.Errorf("failed to verify secret: %w", err)
 	}
 
 	// Step 2: Create or verify PV
-	if err := o.createOrVerifyPV(ctx, c, pvName, secretName, namespace); err != nil {
+	if err := o.createOrVerifyPV(ctx, c, pvName, namespace); err != nil {
 		return fmt.Errorf("failed to create/verify PV: %w", err)
 	}
 
@@ -122,67 +143,43 @@ func (o *OSSStorage) preMount(c client.Client, storageName, namespace string) er
 	return nil
 }
 
-// secretName returns the name of the secret
-func (o *OSSStorage) secretName(storageName string) string {
-	return storageName + "-oss-secret"
-}
-
-// createOrVerifySecret creates the secret or verifies it if already exists
-func (o *OSSStorage) createOrVerifySecret(ctx context.Context, c client.Client, secretName, namespace string) error {
-	secret := &corev1.Secret{}
-	err := c.Get(ctx, types.NamespacedName{Name: secretName, Namespace: namespace}, secret)
-	if err == nil {
-		// Secret exists, verify it
-		return o.verifySecret(secret)
+// verifySecretExists verifies that the referenced secret exists
+func (o *OSSStorage) verifySecretExists(ctx context.Context, c client.Client) error {
+	if o.secretRef == nil {
+		return fmt.Errorf("secretRef is not set")
 	}
-	if !errors.IsNotFound(err) {
+
+	secret := &corev1.Secret{}
+	err := c.Get(ctx, types.NamespacedName{Name: o.secretRef.Name, Namespace: o.secretRef.Namespace}, secret)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return fmt.Errorf("secret %s/%s not found, was PreAdd called?", o.secretRef.Namespace, o.secretRef.Name)
+		}
 		return err
 	}
 
-	// Create new secret
-	newSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: namespace,
-		},
-		Type: corev1.SecretTypeOpaque,
-		Data: map[string][]byte{
-			"akId":     []byte(o.akId),
-			"akSecret": []byte(o.akSecret),
-		},
+	// Verify secret has required fields
+	if _, ok := secret.Data["akId"]; !ok {
+		return fmt.Errorf("secret %s/%s missing akId field", o.secretRef.Namespace, o.secretRef.Name)
 	}
-	return c.Create(ctx, newSecret)
-}
-
-// verifySecret verifies that the existing secret has correct akId and akSecret
-func (o *OSSStorage) verifySecret(secret *corev1.Secret) error {
-	akIdBytes, ok := secret.Data["akId"]
-	if !ok {
-		return fmt.Errorf("secret %s already exists but missing akId field", secret.Name)
-	}
-	akSecretBytes, ok := secret.Data["akSecret"]
-	if !ok {
-		return fmt.Errorf("secret %s already exists but missing akSecret field", secret.Name)
-	}
-
-	// Compare directly (Data field stores base64-encoded values, but client-go handles encoding)
-	if string(akIdBytes) != o.akId {
-		return fmt.Errorf("secret %s already exists with different akId", secret.Name)
-	}
-	if string(akSecretBytes) != o.akSecret {
-		return fmt.Errorf("secret %s already exists with different akSecret", secret.Name)
+	if _, ok := secret.Data["akSecret"]; !ok {
+		return fmt.Errorf("secret %s/%s missing akSecret field", o.secretRef.Namespace, o.secretRef.Name)
 	}
 
 	return nil
 }
 
 // createOrVerifyPV creates the PV or verifies it if already exists
-func (o *OSSStorage) createOrVerifyPV(ctx context.Context, c client.Client, pvName, secretName, namespace string) error {
+func (o *OSSStorage) createOrVerifyPV(ctx context.Context, c client.Client, pvName, namespace string) error {
+	if o.secretRef == nil {
+		return fmt.Errorf("secretRef is not set")
+	}
+
 	pv := &corev1.PersistentVolume{}
 	err := c.Get(ctx, types.NamespacedName{Name: pvName}, pv)
 	if err == nil {
 		// PV exists, verify it
-		return o.verifyPV(pv, secretName, namespace)
+		return o.verifyPV(pv)
 	}
 	if !errors.IsNotFound(err) {
 		return err
@@ -211,8 +208,8 @@ func (o *OSSStorage) createOrVerifyPV(ctx context.Context, c client.Client, pvNa
 					Driver:       "ossplugin.csi.alibabacloud.com",
 					VolumeHandle: pvName,
 					NodePublishSecretRef: &corev1.SecretReference{
-						Name:      secretName,
-						Namespace: namespace,
+						Name:      o.secretRef.Name,
+						Namespace: o.secretRef.Namespace,
 					},
 					VolumeAttributes: map[string]string{
 						"bucket":    o.bucket,
@@ -231,7 +228,11 @@ func (o *OSSStorage) createOrVerifyPV(ctx context.Context, c client.Client, pvNa
 }
 
 // verifyPV verifies that the existing PV has correct configuration
-func (o *OSSStorage) verifyPV(pv *corev1.PersistentVolume, secretName, namespace string) error {
+func (o *OSSStorage) verifyPV(pv *corev1.PersistentVolume) error {
+	if o.secretRef == nil {
+		return fmt.Errorf("secretRef is not set")
+	}
+
 	if pv.Spec.CSI == nil {
 		return fmt.Errorf("PV %s already exists but is not a CSI volume", pv.Name)
 	}
@@ -241,13 +242,13 @@ func (o *OSSStorage) verifyPV(pv *corev1.PersistentVolume, secretName, namespace
 	if pv.Spec.CSI.NodePublishSecretRef == nil {
 		return fmt.Errorf("PV %s already exists but has no NodePublishSecretRef", pv.Name)
 	}
-	if pv.Spec.CSI.NodePublishSecretRef.Name != secretName {
+	if pv.Spec.CSI.NodePublishSecretRef.Name != o.secretRef.Name {
 		return fmt.Errorf("PV %s already exists but references different secret %q (expected %q)",
-			pv.Name, pv.Spec.CSI.NodePublishSecretRef.Name, secretName)
+			pv.Name, pv.Spec.CSI.NodePublishSecretRef.Name, o.secretRef.Name)
 	}
-	if pv.Spec.CSI.NodePublishSecretRef.Namespace != namespace {
+	if pv.Spec.CSI.NodePublishSecretRef.Namespace != o.secretRef.Namespace {
 		return fmt.Errorf("PV %s already exists but references secret in different namespace %q (expected %q)",
-			pv.Name, pv.Spec.CSI.NodePublishSecretRef.Namespace, namespace)
+			pv.Name, pv.Spec.CSI.NodePublishSecretRef.Namespace, o.secretRef.Namespace)
 	}
 	return nil
 }
@@ -354,4 +355,73 @@ func (o *OSSStorage) MountStorage(podTemplate *corev1.PodTemplateSpec, opts Moun
 // MountPath returns the base mount path for the storage
 func (o *OSSStorage) MountPath() string {
 	return "/models"
+}
+
+// PreAdd creates a Kubernetes Secret for OSS credentials and returns a modified config
+// with secretRef instead of raw credentials.
+// This is called before the storage configuration is saved to the config file.
+func (o *OSSStorage) PreAdd(opts PreAddOptions) (map[string]interface{}, error) {
+	ctx := context.Background()
+
+	// Extract credentials from config
+	akId, ok := opts.Config["akId"].(string)
+	if !ok || akId == "" {
+		return nil, fmt.Errorf("akId is required for OSS storage")
+	}
+	akSecret, ok := opts.Config["akSecret"].(string)
+	if !ok || akSecret == "" {
+		return nil, fmt.Errorf("akSecret is required for OSS storage")
+	}
+
+	// Generate secret name based on storage name
+	secretName := opts.StorageName + "-oss-secret"
+
+	// Create or update the secret
+	secret := &corev1.Secret{}
+	err := opts.Client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: opts.Namespace}, secret)
+	if err != nil {
+		if !errors.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to check existing secret: %w", err)
+		}
+		// Secret doesn't exist, create it
+		newSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretName,
+				Namespace: opts.Namespace,
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: map[string][]byte{
+				"akId":     []byte(akId),
+				"akSecret": []byte(akSecret),
+			},
+		}
+		if err := opts.Client.Create(ctx, newSecret); err != nil {
+			return nil, fmt.Errorf("failed to create secret: %w", err)
+		}
+	} else {
+		// Secret exists, verify it has the same credentials
+		existingAkId, ok1 := secret.Data["akId"]
+		existingAkSecret, ok2 := secret.Data["akSecret"]
+		if !ok1 || !ok2 || string(existingAkId) != akId || string(existingAkSecret) != akSecret {
+			return nil, fmt.Errorf("secret %s/%s already exists with different credentials", opts.Namespace, secretName)
+		}
+	}
+
+	// Build new config with secretRef instead of raw credentials
+	newConfig := make(map[string]interface{})
+	for k, v := range opts.Config {
+		// Skip sensitive fields
+		if k == "akId" || k == "akSecret" {
+			continue
+		}
+		newConfig[k] = v
+	}
+
+	// Add secretRef
+	newConfig["secretRef"] = map[string]interface{}{
+		"name":      secretName,
+		"namespace": opts.Namespace,
+	}
+
+	return newConfig, nil
 }

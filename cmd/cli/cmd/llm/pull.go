@@ -250,10 +250,16 @@ func buildPullJob(modelID string, podTemplate *corev1.PodTemplateSpec) *batchv1.
 	}
 }
 
-// waitForJobCompletionWithProgress waits for job completion with animated progress indicator
+// waitForJobCompletionWithProgress waits for job completion with animated progress indicator.
+// Uses a fast UI ticker (0.5s) for smooth animation but only queries API every 10s to reduce server load.
 func waitForJobCompletionWithProgress(ctx context.Context, clientset *kubernetes.Clientset, namespace, jobName string, jobDescription string) (JobState, *batchv1.Job, error) {
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
+	// UI refresh ticker for smooth animation (0.5s)
+	uiTicker := time.NewTicker(500 * time.Millisecond)
+	defer uiTicker.Stop()
+
+	// API query interval: every 20 UI ticks = 10s
+	const apiQueryInterval = 20
+	tickCount := 0
 
 	dots := 0
 	animate := func() {
@@ -267,8 +273,16 @@ func waitForJobCompletionWithProgress(ctx context.Context, clientset *kubernetes
 		case <-ctx.Done():
 			fmt.Println()
 			return JobStatePending, nil, ctx.Err()
-		case <-ticker.C:
+		case <-uiTicker.C:
+			tickCount++
 			animate()
+
+			// Only query API every apiQueryInterval ticks
+			if tickCount%apiQueryInterval != 0 {
+				continue
+			}
+
+			tickCount = 0
 			job, err := clientset.BatchV1().Jobs(namespace).Get(ctx, jobName, metav1.GetOptions{})
 			if err != nil {
 				fmt.Println()

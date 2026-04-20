@@ -108,3 +108,11 @@ func (p *PVCStorage) MountStorage(podTemplate *corev1.PodTemplateSpec, _ MountOp
 func (p *PVCStorage) MountPath() string {
 	return "/models"
 }
+
+// PreAdd is a no-op for PVC storage as it doesn't need to create any resources.
+// PVC must be created separately by the user or cluster administrator.
+func (p *PVCStorage) PreAdd(opts PreAddOptions) (map[string]interface{}, error) {
+	// PVC storage doesn't need to create any resources during add-storage
+	// Just return the original config
+	return opts.Config, nil
+}

@@ -21,10 +21,12 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
 func TestNewConfigCmd(t *testing.T) {
-	cmd := NewConfigCmd()
+	cf := genericclioptions.NewConfigFlags(true)
+	cmd := NewConfigCmd(cf)
 
 	assert.NotNil(t, cmd)
 	assert.Equal(t, "config", cmd.Use)
@@ -61,7 +63,8 @@ func TestNewConfigCmd(t *testing.T) {
 }
 
 func TestNewConfigCmd_SubcommandProperties(t *testing.T) {
-	cmd := NewConfigCmd()
+	cf := genericclioptions.NewConfigFlags(true)
+	cmd := NewConfigCmd(cf)
 
 	testCases := []struct {
 		name     string
@@ -93,6 +96,7 @@ func TestNewConfigCmd_SubcommandProperties(t *testing.T) {
 }
 
 func TestNewConfigCmd_ReturnsCobraCommand(t *testing.T) {
-	cmd := NewConfigCmd()
+	cf := genericclioptions.NewConfigFlags(true)
+	cmd := NewConfigCmd(cf)
 	assert.IsType(t, &cobra.Command{}, cmd)
 }

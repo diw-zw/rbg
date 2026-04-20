@@ -39,6 +39,20 @@ type MountOptions struct {
 	DryRun bool
 }
 
+// PreAddOptions contains options passed to PreAdd, used for preparing
+// resources before adding a storage configuration.
+type PreAddOptions struct {
+	// Client is the controller-runtime client used to create Kubernetes resources
+	// (e.g., Secret). Required for storage backends that need to store sensitive data.
+	Client client.Client
+	// StorageName is the name from the storage configuration, used for naming resources.
+	StorageName string
+	// Namespace is the target namespace for the resources.
+	Namespace string
+	// Config is the original storage configuration map.
+	Config map[string]interface{}
+}
+
 // ModelInfo contains information about a downloaded model.
 type ModelInfo struct {
 	// ModelID is the original model identifier (e.g., "organization/model-name")
@@ -70,6 +84,18 @@ type Plugin interface {
 	// MountPath returns the base path where storage is mounted in the container.
 	// The full model path is constructed by the caller as: MountPath() + "/" + sanitized(modelID)
 	MountPath() string
+
+	// PreAdd is called before adding a new storage configuration.
+	// It allows plugins to perform preparatory work such as creating Kubernetes Secrets
+	// for sensitive data. The plugin should create necessary resources and return a
+	// modified config that replaces sensitive values with references (e.g., secretRef).
+	//
+	// For example, an OSS plugin might:
+	// 1. Create a Secret containing akId and akSecret
+	// 2. Return a config with secretRef {namespace, name} instead of the raw credentials
+	//
+	// If no preparation is needed, the plugin should return the original config.
+	PreAdd(opts PreAddOptions) (config map[string]interface{}, err error)
 }
 
 // Factory is a constructor for a storage plugin.
@@ -120,4 +146,17 @@ func GetFields(pluginType string) []util.ConfigField {
 		return nil
 	}
 	return factory().ConfigFields()
+}
+
+// PreAdd calls the PreAdd method for the specified plugin type with the given options.
+// This should be called before adding a new storage configuration to perform any
+// necessary preparatory work (e.g., creating Kubernetes Secrets for sensitive data).
+// Returns the modified config (with secretRef instead of raw credentials) and any error.
+func PreAdd(pluginType string, opts PreAddOptions) (map[string]interface{}, error) {
+	factory, ok := registry[pluginType]
+	if !ok {
+		return nil, fmt.Errorf("unknown storage type %q", pluginType)
+	}
+	p := factory()
+	return p.PreAdd(opts)
 }
