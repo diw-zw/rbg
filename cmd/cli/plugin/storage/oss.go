@@ -213,7 +213,7 @@ func (o *OSSStorage) createOrVerifyPV(ctx context.Context, c client.Client, pvNa
 					},
 					VolumeAttributes: map[string]string{
 						"bucket":    o.bucket,
-						"otherOpts": "",
+						"otherOpts": "-o max_stat_cache_size=0 -o allow_other",
 						"path":      o.subpath,
 						"url":       o.url,
 					},
