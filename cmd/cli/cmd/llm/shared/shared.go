@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llm
+package shared
 
 import (
 	"fmt"
@@ -26,8 +26,8 @@ import (
 	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
 )
 
-// sanitizeModelID sanitizes the model ID for use in resource names
-func sanitizeModelID(modelID string) string {
+// SanitizeModelID sanitizes the model ID for use in resource names.
+func SanitizeModelID(modelID string) string {
 	result := strings.ReplaceAll(modelID, "/", "-")
 	result = strings.ReplaceAll(result, ":", "-")
 	result = strings.ReplaceAll(result, "_", "-")
@@ -35,8 +35,8 @@ func sanitizeModelID(modelID string) string {
 	return result
 }
 
-// printRBG prints a v1alpha2 RoleBasedGroup as YAML
-func printRBG(rbg *workloadsv1alpha2.RoleBasedGroup) error {
+// PrintRBG prints a v1alpha2 RoleBasedGroup as YAML.
+func PrintRBG(rbg *workloadsv1alpha2.RoleBasedGroup) error {
 	out, err := yaml.Marshal(rbg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal RoleBasedGroup: %w", err)

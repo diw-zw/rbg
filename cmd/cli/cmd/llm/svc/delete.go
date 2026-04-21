@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llm
+package svc
 
 import (
 	"context"
@@ -24,7 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 
-	llmmeta "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/metadata"
+	llmmeta "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/svc/metadata"
 	"sigs.k8s.io/rbgs/cmd/cli/util"
 )
 
@@ -32,7 +32,7 @@ func newDeleteCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete [name...] [flags]",
 		Short: "Delete LLM inference services",
-		Long: `Delete RoleBasedGroup resources, such as those created by 'kubectl rbg llm run'.
+		Long: `Delete RoleBasedGroup resources, such as those created by 'kubectl rbg llm svc run'.
 
 This command deletes LLM inference services in the selected namespace.
 It deletes services by name, and can delete multiple services in a single invocation.
@@ -41,13 +41,13 @@ Use this command with care and ensure that the specified RoleBasedGroup names co
 to the services you intend to remove
 `,
 		Example: `  # Delete a specific service by name
-  kubectl rbg llm delete my-qwen
+  kubectl rbg llm svc delete my-qwen
 
   # Delete multiple services by name
-  kubectl rbg llm delete my-qwen my-llama
+  kubectl rbg llm svc delete my-qwen my-llama
 
   # Delete a service in a specific namespace
-  kubectl rbg llm delete my-qwen -n kubeai
+  kubectl rbg llm svc delete my-qwen -n kubeai
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {

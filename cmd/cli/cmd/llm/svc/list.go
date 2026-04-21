@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llm
+package svc
 
 import (
 	"context"
@@ -26,7 +26,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 
 	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
-	llmmeta "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/metadata"
+	llmmeta "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/svc/metadata"
 	"sigs.k8s.io/rbgs/cmd/cli/util"
 )
 
@@ -52,7 +52,7 @@ func newListCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list [flags]",
 		Short: "List LLM inference services created by the CLI",
-		Long: `List RoleBasedGroup resources created by 'kubectl rbg llm run'.
+		Long: `List RoleBasedGroup resources created by 'kubectl rbg llm svc run'.
 
 This command displays all LLM inference services that were created using the CLI.
 It shows information such as the service name, model, engine, mode, replicas, and status.
@@ -60,16 +60,16 @@ It shows information such as the service name, model, engine, mode, replicas, an
 The command filters RoleBasedGroups by the CLI source label to only show resources
 managed by the kubectl-rbg CLI tool.`,
 		Example: `  # List services in current namespace
-  kubectl rbg llm list
+  kubectl rbg llm svc list
 
   # List services in all namespaces
-  kubectl rbg llm list -A
+  kubectl rbg llm svc list -A
 
   # List services in a specific namespace
-  kubectl rbg llm list -n kubeai
+  kubectl rbg llm svc list -n kubeai
 
   # Filter by label selector
-  kubectl rbg llm list -l app.kubernetes.io/name=my-qwen`,
+  kubectl rbg llm svc list -l app.kubernetes.io/name=my-qwen`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := util.GetRBGClient(cf)
 			if err != nil {

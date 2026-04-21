@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llm
+package svc
 
 import (
 	"bytes"
@@ -28,7 +28,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 
 	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
-	llmmeta "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/metadata"
+	llmmeta "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/svc/metadata"
 )
 
 // --- newListCmd: command metadata ---
