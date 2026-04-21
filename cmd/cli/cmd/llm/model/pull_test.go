@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llm
+package model
 
 import (
 	"encoding/json"
@@ -58,7 +58,7 @@ func TestShellEscape_SingleQuoteEscaped(t *testing.T) {
 
 func TestShellEscape_Empty(t *testing.T) {
 	result := shellEscape("")
-	// empty string: not matching safe chars → wrapped in single quotes
+	// empty string: not matching safe chars -> wrapped in single quotes
 	assert.Equal(t, "''", result)
 }
 
@@ -139,7 +139,7 @@ func TestDeriveJobState_Pending(t *testing.T) {
 }
 
 func TestDeriveJobState_ConditionFalse_NotSucceeded(t *testing.T) {
-	// Condition present but Status == False → not terminal
+	// Condition present but Status == False -> not terminal
 	job := &batchv1.Job{
 		Status: batchv1.JobStatus{
 			Conditions: []batchv1.JobCondition{
@@ -255,7 +255,7 @@ func extractJSONFromCommand(t *testing.T, cmd []string, args []string) string {
 		// Extract content between quotes, then unescape shell escapes
 		quotedContent := rest[1:jsonEnd]
 		// Unescape shell single-quote escapes: '"'"' -> '
-		return strings.ReplaceAll(quotedContent, `'","'`, "'")
+		return strings.ReplaceAll(quotedContent, `'"'"'`, "'")
 	}
 
 	// Unquoted: find the end marker

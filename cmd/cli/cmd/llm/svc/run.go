@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llm
+package svc
 
 import (
 	"bytes"
@@ -38,9 +38,10 @@ import (
 
 	"sigs.k8s.io/rbgs/api/workloads/constants"
 	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
-	"sigs.k8s.io/rbgs/cmd/cli/cmd/llm/chat"
-	llmmeta "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/metadata"
-	runpkg "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/run"
+	"sigs.k8s.io/rbgs/cmd/cli/cmd/llm/shared"
+	"sigs.k8s.io/rbgs/cmd/cli/cmd/llm/svc/chat"
+	llmmeta "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/svc/metadata"
+	runpkg "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/svc/run"
 	cliconfig "sigs.k8s.io/rbgs/cmd/cli/config"
 	engineplugin "sigs.k8s.io/rbgs/cmd/cli/plugin/engine"
 	storageplugin "sigs.k8s.io/rbgs/cmd/cli/plugin/storage"
@@ -148,13 +149,13 @@ func resolveStorageAndModelPath(modelID string, p RunParams, userCfg *cliconfig.
 			if storageCfg, err := userCfg.GetStorage(storageName); err == nil {
 				if sp, err := storageplugin.Get(storageCfg.Type, storageCfg.Config); err == nil {
 					storagePlugin = sp
-					modelPath = filepath.Join(sp.MountPath(), sanitizeModelID(modelID), sanitizeModelID(p.Revision))
+					modelPath = filepath.Join(sp.MountPath(), shared.SanitizeModelID(modelID), shared.SanitizeModelID(p.Revision))
 				}
 			}
 		}
 	}
 	if modelPath == "" {
-		modelPath = "/model/" + sanitizeModelID(modelID) + "/" + sanitizeModelID(p.Revision)
+		modelPath = "/model/" + shared.SanitizeModelID(modelID) + "/" + shared.SanitizeModelID(p.Revision)
 	}
 
 	return &storageResult{
@@ -252,7 +253,7 @@ func assembleRBG(name, namespace string, pattern *workloadsv1alpha2.Pattern, met
 }
 
 // generateRBG generates a RoleBasedGroup.
-// It performs: model config resolution → pattern generation → storage mounting → RBG assembly.
+// It performs: model config resolution -> pattern generation -> storage mounting -> RBG assembly.
 // Returns the generated RBG and metadata.
 func generateRBG(name, modelID, namespace string, p RunParams, userCfg *cliconfig.Config, cf *genericclioptions.ConfigFlags) (*workloadsv1alpha2.RoleBasedGroup, llmmeta.RunMetadata, error) {
 	// 1. Resolve model/mode/engine config
@@ -586,32 +587,32 @@ The command will:
   3. Create a RoleBasedGroup resource in the cluster
 
 Prerequisites:
-  - The model should be available in storage (use 'kubectl rbg llm pull' first)
+  - The model should be available in storage (use 'kubectl rbg llm model pull' first)
   - Storage must be configured (use 'kubectl rbg llm config add-storage')
 
 Examples:
   # Quick start with default config
-  kubectl rbg llm run my-qwen Qwen/Qwen3.5-0.8B
+  kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B
 
   # Use a specific mode
-  kubectl rbg llm run my-qwen Qwen/Qwen3.5-0.8B --mode throughput
+  kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --mode throughput
 
   # Override engine
-  kubectl rbg llm run my-qwen Qwen/Qwen3.5-0.8B --mode custom --engine sglang
+  kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --mode custom --engine sglang
 
   # Run with multiple replicas
-  kubectl rbg llm run my-qwen Qwen/Qwen3.5-0.8B --replicas 3
+  kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --replicas 3
 
   # Dry run to preview the generated configuration
-  kubectl rbg llm run my-qwen Qwen/Qwen3.5-0.8B --dry-run`,
+  kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --dry-run`,
 		Example: `  # Quick start with default config
-  kubectl rbg llm run my-qwen Qwen/Qwen3.5-0.8B
+  kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B
 
   # Use a specific mode
-  kubectl rbg llm run my-qwen Qwen/Qwen3.5-0.8B --mode throughput
+  kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --mode throughput
 
   # Override engine
-  kubectl rbg llm run my-qwen Qwen/Qwen3.5-0.8B --mode custom --engine sglang`,
+  kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --mode custom --engine sglang`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
@@ -645,7 +646,7 @@ Examples:
 			if dryRun {
 				fmt.Println("# DRY RUN: No workload will be created")
 				fmt.Println()
-				return printRBG(rbg)
+				return shared.PrintRBG(rbg)
 			}
 
 			// Create the RoleBasedGroup workload

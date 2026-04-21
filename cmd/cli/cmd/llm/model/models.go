@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llm
+package model
 
 import (
 	"context"
@@ -40,12 +40,12 @@ func newModelsCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "models",
+		Use:   "list",
 		Short: "List downloaded models in storage",
 		Long: `List all downloaded models from the configured storage.
 
 This command creates a Kubernetes Job that scans the configured storage and lists
-all models that have been downloaded using 'kubectl rbg llm pull'. It displays
+all models that have been downloaded using 'kubectl rbg llm model pull'. It displays
 the model ID, revision, and download timestamp for each model found.
 
 The command requires:
@@ -53,10 +53,10 @@ The command requires:
 
 Examples:
   # List models in the default storage
-  kubectl rbg llm models
+  kubectl rbg llm model list
 
   # List models in a specific storage
-  kubectl rbg llm models --storage my-pvc
+  kubectl rbg llm model list --storage my-pvc
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()

@@ -36,7 +36,7 @@ func TestNewLLMCmd_HasExpectedSubcommands(t *testing.T) {
 	cf := genericclioptions.NewConfigFlags(true)
 	cmd := NewLLMCmd(cf)
 
-	expected := []string{"config", "generate", "benchmark", "pull", "models", "run", "list", "delete"}
+	expected := []string{"svc", "model", "config", "generate", "benchmark"}
 	names := make([]string, 0, len(cmd.Commands()))
 	for _, sub := range cmd.Commands() {
 		names = append(names, sub.Name())
@@ -50,63 +50,53 @@ func TestNewLLMCmd_HasExpectedSubcommands(t *testing.T) {
 func TestNewLLMCmd_SubcommandCount(t *testing.T) {
 	cf := genericclioptions.NewConfigFlags(true)
 	cmd := NewLLMCmd(cf)
-	assert.Equal(t, 9, len(cmd.Commands()))
+	assert.Equal(t, 5, len(cmd.Commands()))
 }
 
-func TestNewLLMCmd_PullSubcommand_Flags(t *testing.T) {
+func TestNewLLMCmd_SVCSubcommand_Exists(t *testing.T) {
 	cf := genericclioptions.NewConfigFlags(true)
 	cmd := NewLLMCmd(cf)
 
-	var pullCmd *cobra.Command
+	var svcCmd *cobra.Command
 	for _, sub := range cmd.Commands() {
-		if sub.Name() == "pull" {
-			pullCmd = sub
+		if sub.Name() == "svc" {
+			svcCmd = sub
 			break
 		}
 	}
-	require.NotNil(t, pullCmd)
+	require.NotNil(t, svcCmd)
 
-	assert.NotNil(t, pullCmd.Flags().Lookup("revision"))
-	assert.NotNil(t, pullCmd.Flags().Lookup("source"))
-	assert.NotNil(t, pullCmd.Flags().Lookup("storage"))
-	assert.NotNil(t, pullCmd.Flags().Lookup("wait"))
+	// svc should have run, list, delete, chat subcommands
+	expectedSVCSubs := []string{"run", "list", "delete", "chat"}
+	svcNames := make([]string, 0, len(svcCmd.Commands()))
+	for _, sub := range svcCmd.Commands() {
+		svcNames = append(svcNames, sub.Name())
+	}
+	for _, want := range expectedSVCSubs {
+		require.Contains(t, svcNames, want, "expected svc subcommand %q to be registered", want)
+	}
 }
 
-func TestNewLLMCmd_ModelsSubcommand_Flags(t *testing.T) {
+func TestNewLLMCmd_ModelSubcommand_Exists(t *testing.T) {
 	cf := genericclioptions.NewConfigFlags(true)
 	cmd := NewLLMCmd(cf)
 
-	var modelsCmd *cobra.Command
+	var modelCmd *cobra.Command
 	for _, sub := range cmd.Commands() {
-		if sub.Name() == "models" {
-			modelsCmd = sub
+		if sub.Name() == "model" {
+			modelCmd = sub
 			break
 		}
 	}
-	require.NotNil(t, modelsCmd)
+	require.NotNil(t, modelCmd)
 
-	assert.NotNil(t, modelsCmd.Flags().Lookup("storage"))
-}
-
-func TestNewLLMCmd_RunSubcommand_Flags(t *testing.T) {
-	cf := genericclioptions.NewConfigFlags(true)
-	cmd := NewLLMCmd(cf)
-
-	var runCmd *cobra.Command
-	for _, sub := range cmd.Commands() {
-		if sub.Name() == "run" {
-			runCmd = sub
-			break
-		}
+	// model should have list, pull subcommands
+	expectedModelSubs := []string{"list", "pull"}
+	modelNames := make([]string, 0, len(modelCmd.Commands()))
+	for _, sub := range modelCmd.Commands() {
+		modelNames = append(modelNames, sub.Name())
 	}
-	require.NotNil(t, runCmd)
-
-	assert.Nil(t, runCmd.Flags().Lookup("name"))
-	assert.NotNil(t, runCmd.Flags().Lookup("mode"))
-	assert.NotNil(t, runCmd.Flags().Lookup("replicas"))
-	assert.NotNil(t, runCmd.Flags().Lookup("env"))
-	assert.NotNil(t, runCmd.Flags().Lookup("arg"))
-	assert.NotNil(t, runCmd.Flags().Lookup("storage"))
-	assert.NotNil(t, runCmd.Flags().Lookup("engine"))
-	assert.NotNil(t, runCmd.Flags().Lookup("revision"))
+	for _, want := range expectedModelSubs {
+		require.Contains(t, modelNames, want, "expected model subcommand %q to be registered", want)
+	}
 }

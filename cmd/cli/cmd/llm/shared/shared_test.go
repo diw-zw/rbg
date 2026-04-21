@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llm
+package shared
 
 import (
 	"testing"
@@ -22,32 +22,32 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// --- sanitizeModelID ---
+// --- SanitizeModelID ---
 
 func TestSanitizeModelID_Slash(t *testing.T) {
-	assert.Equal(t, "org-model", sanitizeModelID("org/model"))
+	assert.Equal(t, "org-model", SanitizeModelID("org/model"))
 }
 
 func TestSanitizeModelID_Colon(t *testing.T) {
-	assert.Equal(t, "model-v1.0", sanitizeModelID("model:v1.0"))
+	assert.Equal(t, "model-v1.0", SanitizeModelID("model:v1.0"))
 }
 
 func TestSanitizeModelID_Underscore(t *testing.T) {
-	assert.Equal(t, "my-model", sanitizeModelID("my_model"))
+	assert.Equal(t, "my-model", SanitizeModelID("my_model"))
 }
 
 func TestSanitizeModelID_UpperCase(t *testing.T) {
-	assert.Equal(t, "qwen-qwen2.5-7b", sanitizeModelID("Qwen/Qwen2.5-7B"))
+	assert.Equal(t, "qwen-qwen2.5-7b", SanitizeModelID("Qwen/Qwen2.5-7B"))
 }
 
 func TestSanitizeModelID_AllSpecialChars(t *testing.T) {
-	assert.Equal(t, "a-b-c-d", sanitizeModelID("a/b:c_d"))
+	assert.Equal(t, "a-b-c-d", SanitizeModelID("a/b:c_d"))
 }
 
 func TestSanitizeModelID_NoChange(t *testing.T) {
-	assert.Equal(t, "simple", sanitizeModelID("simple"))
+	assert.Equal(t, "simple", SanitizeModelID("simple"))
 }
 
 func TestSanitizeModelID_Empty(t *testing.T) {
-	assert.Equal(t, "", sanitizeModelID(""))
+	assert.Equal(t, "", SanitizeModelID(""))
 }

@@ -43,7 +43,7 @@
         - "--mem-fraction-static=0.8"
         - "--max-prefill-tokens=16384"
 
-    - name: distributed-tp2
+    - name: distributed-sglang
       description: "Distributed inference with tensor parallel size 2 on 2 nodes"
       engine: sglang
       image: lmsysorg/sglang:latest
@@ -57,12 +57,12 @@
         size: 2
       shmSize: "2Gi"
 
-    - name: distributed-vllm-tp
+    - name: distributed-vllm
       description: "vLLM distributed inference - pure tensor parallel across nodes"
       engine: vllm
       image: vllm/vllm-openai:nightly
       resources:
-        nvidia.com/gpu: "2"
+        nvidia.com/gpu: "1"
         cpu: "4"
         memory: "16Gi"
       args:
@@ -70,3 +70,23 @@
       distributed:
         size: 2
       shmSize: "2Gi"
+
+- id: "Qwen/Qwen3.6-35B-A3B"
+  name: "Qwen3.6 35B A3B"
+  modes:
+    - name: standard
+      description: "Balanced performance and resource usage"
+      engine: sglang
+      image: lmsysorg/sglang:latest
+      resources:
+        nvidia.com/gpu: "2"
+        memory: "128Gi"
+        cpu: "4"
+      args:
+        - --tp-size
+        - "2"
+        - --context-length
+        - "262144"
+        - --mem-fraction-static
+        - "0.90"
+      shmSize: "16Gi"
