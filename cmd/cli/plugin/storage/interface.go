@@ -18,6 +18,7 @@ package storage
 
 import (
 	"fmt"
+	"sort"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -130,12 +131,13 @@ func ValidateConfig(pluginType string, config map[string]interface{}) error {
 	return util.ValidateConfig(factory().ConfigFields(), config)
 }
 
-// RegisteredNames returns all registered storage plugin type names.
+// RegisteredNames returns all registered storage plugin type names in alphabetical order.
 func RegisteredNames() []string {
 	names := make([]string, 0, len(registry))
 	for name := range registry {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 

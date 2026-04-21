@@ -20,15 +20,50 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"sigs.k8s.io/rbgs/cmd/cli/config"
 	sourceplugin "sigs.k8s.io/rbgs/cmd/cli/plugin/source"
 	storageplugin "sigs.k8s.io/rbgs/cmd/cli/plugin/storage"
 	"sigs.k8s.io/rbgs/cmd/cli/plugin/util"
+	cliutil "sigs.k8s.io/rbgs/cmd/cli/util"
 )
+
+// printConfigItems prints config key-value pairs with keys sorted alphabetically.
+// Sensitive fields are masked based on the provided field definitions.
+func printConfigItems(configMap map[string]interface{}, fields []util.ConfigField) {
+	if len(configMap) == 0 {
+		return
+	}
+
+	maskedFields := make(map[string]bool)
+	for _, f := range fields {
+		if f.Masked == util.MaskPrevious || f.Masked == util.MaskAll {
+			maskedFields[f.Key] = true
+		}
+	}
+
+	fmt.Println("  Config:")
+
+	keys := make([]string, 0, len(configMap))
+	for k := range configMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		v := configMap[k]
+		if maskedFields[k] {
+			fmt.Printf("    %s: %s\n", k, util.MaskedDisplay())
+		} else {
+			fmt.Printf("    %s: %v\n", k, v)
+		}
+	}
+}
 
 func newViewCmd() *cobra.Command {
 	return &cobra.Command{
@@ -57,24 +92,7 @@ Example:
 				if s, err := cfg.GetStorage(cfg.CurrentStorage); err == nil {
 					fmt.Printf("Storage: %s (active)\n", s.Name)
 					fmt.Printf("  Type: %s\n", s.Type)
-					if len(s.Config) > 0 {
-						fmt.Println("  Config:")
-						// Get field definitions to check for masked fields
-						fields := storageplugin.GetFields(s.Type)
-						maskedFields := make(map[string]bool)
-						for _, f := range fields {
-							if f.Masked == util.MaskPrevious || f.Masked == util.MaskAll {
-								maskedFields[f.Key] = true
-							}
-						}
-						for k, v := range s.Config {
-							if maskedFields[k] {
-								fmt.Printf("    %s: %s\n", k, util.MaskedDisplay())
-							} else {
-								fmt.Printf("    %s: %v\n", k, v)
-							}
-						}
-					}
+					printConfigItems(s.Config, storageplugin.GetFields(s.Type))
 				}
 			} else {
 				fmt.Println("Storage: (not configured)")
@@ -85,24 +103,7 @@ Example:
 				if s, err := cfg.GetSource(cfg.CurrentSource); err == nil {
 					fmt.Printf("Source: %s (active)\n", s.Name)
 					fmt.Printf("  Type: %s\n", s.Type)
-					if len(s.Config) > 0 {
-						fmt.Println("  Config:")
-						// Get field definitions to check for masked fields
-						fields := sourceplugin.GetFields(s.Type)
-						maskedFields := make(map[string]bool)
-						for _, f := range fields {
-							if f.Masked == util.MaskPrevious || f.Masked == util.MaskAll {
-								maskedFields[f.Key] = true
-							}
-						}
-						for k, v := range s.Config {
-							if maskedFields[k] {
-								fmt.Printf("    %s: %s\n", k, util.MaskedDisplay())
-							} else {
-								fmt.Printf("    %s: %v\n", k, v)
-							}
-						}
-					}
+					printConfigItems(s.Config, sourceplugin.GetFields(s.Type))
 				}
 			} else {
 				fmt.Println("Source: (not configured)")
@@ -210,7 +211,7 @@ func configureSource(reader *bufio.Reader) (string, map[string]interface{}, erro
 	return configurePlugin(reader, "Model Source", sourceplugin.RegisteredNames, sourceplugin.GetFields)
 }
 
-func newInitCmd() *cobra.Command {
+func newInitCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize LLM configuration",
@@ -247,6 +248,26 @@ Example:
 			storageType, storageConfig, err := configureStorage(reader)
 			if err != nil {
 				return fmt.Errorf("failed to configure storage: %w", err)
+			}
+
+			// Call PreAdd to perform any preparatory work (e.g., creating Kubernetes Secrets)
+			// This also returns a modified config with secretRef instead of raw credentials
+			ns := cliutil.GetNamespace(cf)
+			ctrlClient, err := cliutil.GetControllerRuntimeClient(cf)
+			if err != nil {
+				return fmt.Errorf("failed to create controller client: %w", err)
+			}
+
+			preAddOpts := storageplugin.PreAddOptions{
+				Client:      ctrlClient,
+				StorageName: storageType,
+				Namespace:   ns,
+				Config:      storageConfig,
+			}
+
+			storageConfig, err = storageplugin.PreAdd(storageType, preAddOpts)
+			if err != nil {
+				return fmt.Errorf("failed to prepare storage: %w", err)
 			}
 
 			// Configure Source

@@ -43,16 +43,14 @@ func testOSSConfig() map[string]interface{} {
 	}
 }
 
-// testOSSConfigWithSecretRef returns a config with secretRef (as returned by PreAdd)
+// testOSSConfigWithSecretRef returns a config with secretName/secretNamespace (as returned by PreAdd)
 func testOSSConfigWithSecretRef() map[string]interface{} {
 	return map[string]interface{}{
-		"url":     "oss-cn-hangzhou.aliyuncs.com",
-		"bucket":  "test-bucket",
-		"subpath": "models",
-		"secretRef": map[string]interface{}{
-			"name":      "test-oss-oss-secret",
-			"namespace": "default",
-		},
+		"url":             "oss-cn-hangzhou.aliyuncs.com",
+		"bucket":          "test-bucket",
+		"subpath":         "models",
+		"secretName":      "test-oss-oss-secret",
+		"secretNamespace": "default",
 	}
 }
 
@@ -122,22 +120,20 @@ func TestOSSStorage_Init_EmptyRequiredFields(t *testing.T) {
 }
 
 func TestOSSStorage_Init_MissingSecretRef(t *testing.T) {
-	config := testOSSConfig() // config without secretRef
+	config := testOSSConfig() // config without secretName/secretNamespace
 	p := &OSSStorage{}
 	err := p.Init(config)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "secretRef is required")
+	assert.Contains(t, err.Error(), "secretName is required")
 }
 
 func TestOSSStorage_Init_OK_WithSecretRef(t *testing.T) {
 	config := map[string]interface{}{
-		"url":     "oss-cn-hangzhou.aliyuncs.com",
-		"bucket":  "test-bucket",
-		"subpath": "models",
-		"secretRef": map[string]interface{}{
-			"name":      "test-secret",
-			"namespace": "default",
-		},
+		"url":             "oss-cn-hangzhou.aliyuncs.com",
+		"bucket":          "test-bucket",
+		"subpath":         "models",
+		"secretName":      "test-secret",
+		"secretNamespace": "default",
 	}
 	p := &OSSStorage{}
 	err := p.Init(config)
@@ -146,9 +142,8 @@ func TestOSSStorage_Init_OK_WithSecretRef(t *testing.T) {
 	assert.Equal(t, "oss-cn-hangzhou.aliyuncs.com", p.url)
 	assert.Equal(t, "test-bucket", p.bucket)
 	assert.Equal(t, "models", p.subpath)
-	require.NotNil(t, p.secretRef)
-	assert.Equal(t, "test-secret", p.secretRef.Name)
-	assert.Equal(t, "default", p.secretRef.Namespace)
+	assert.Equal(t, "test-secret", p.secretName)
+	assert.Equal(t, "default", p.secretNamespace)
 }
 
 func TestOSSStorage_Init_OK_WithoutSubpath(t *testing.T) {
@@ -182,17 +177,15 @@ func TestOSSStorage_Exists(t *testing.T) {
 	assert.False(t, exists)
 }
 
-// testOSSWithSecretRef creates an OSSStorage with secretRef for testing
+// testOSSWithSecretRef creates an OSSStorage with secretName/secretNamespace for testing
 func testOSSWithSecretRef() *OSSStorage {
 	return &OSSStorage{
-		storageSize: "100Gi",
-		url:         "oss-cn-hangzhou.aliyuncs.com",
-		bucket:      "test-bucket",
-		subpath:     "models",
-		secretRef: &corev1.SecretReference{
-			Name:      "test-oss-oss-secret",
-			Namespace: "default",
-		},
+		storageSize:     "100Gi",
+		url:             "oss-cn-hangzhou.aliyuncs.com",
+		bucket:          "test-bucket",
+		subpath:         "models",
+		secretName:      "test-oss-oss-secret",
+		secretNamespace: "default",
 	}
 }
 
@@ -729,14 +722,12 @@ func TestOSSStorage_PreAdd_CreatesSecret(t *testing.T) {
 	assert.Equal(t, []byte("test-ak-id"), secret.Data["akId"])
 	assert.Equal(t, []byte("test-ak-secret"), secret.Data["akSecret"])
 
-	// Verify modified config has secretRef and no credentials
+	// Verify modified config has secretName/secretNamespace and no credentials
 	assert.Nil(t, modifiedConfig["akId"], "akId should be removed from config")
 	assert.Nil(t, modifiedConfig["akSecret"], "akSecret should be removed from config")
 
-	secretRef, ok := modifiedConfig["secretRef"].(map[string]interface{})
-	require.True(t, ok, "secretRef should be present in modified config")
-	assert.Equal(t, "test-oss-oss-secret", secretRef["name"])
-	assert.Equal(t, "default", secretRef["namespace"])
+	assert.Equal(t, "test-oss-oss-secret", modifiedConfig["secretName"], "secretName should be present in modified config")
+	assert.Equal(t, "default", modifiedConfig["secretNamespace"], "secretNamespace should be present in modified config")
 
 	// Verify other fields are preserved
 	assert.Equal(t, "oss-cn-hangzhou.aliyuncs.com", modifiedConfig["url"])
@@ -776,10 +767,9 @@ func TestOSSStorage_PreAdd_VerifiesExistingSecret(t *testing.T) {
 	modifiedConfig, err := p.PreAdd(opts)
 	require.NoError(t, err)
 
-	// Verify modified config has secretRef
-	secretRef, ok := modifiedConfig["secretRef"].(map[string]interface{})
-	require.True(t, ok)
-	assert.Equal(t, "test-oss-oss-secret", secretRef["name"])
+	// Verify modified config has secretName/secretNamespace
+	assert.Equal(t, "test-oss-oss-secret", modifiedConfig["secretName"])
+	assert.Equal(t, "default", modifiedConfig["secretNamespace"])
 }
 
 func TestOSSStorage_PreAdd_FailsOnDifferentSecret(t *testing.T) {

@@ -40,12 +40,12 @@ func init() {
 // OSSStorage implements the StoragePlugin interface for Alibaba Cloud OSS storage
 type OSSStorage struct {
 	// config fields
-	storageSize string
-	url         string
-	bucket      string
-	subpath     string
-	// secretRef references the Kubernetes Secret containing OSS credentials
-	secretRef *corev1.SecretReference
+	storageSize     string
+	url             string
+	bucket          string
+	subpath         string
+	secretName      string
+	secretNamespace string
 }
 
 // Name returns the plugin name
@@ -61,15 +61,15 @@ func (o *OSSStorage) ConfigFields() []util.ConfigField {
 		{Key: "url", Description: "OSS endpoint URL (e.g., oss-cn-hangzhou.aliyuncs.com)", Required: true},
 		{Key: "bucket", Description: "OSS bucket name", Required: true},
 		{Key: "subpath", Description: "subpath within the bucket", Required: false},
-		{Key: "akId", Description: "Alibaba Cloud AccessKey ID (only needed during add-storage)", Required: false},
-		{Key: "akSecret", Description: "Alibaba Cloud AccessKey Secret (only needed during add-storage)", Required: false, Masked: util.MaskAll},
+		{Key: "akId", Description: "Alibaba Cloud AccessKey ID", Required: false},
+		{Key: "akSecret", Description: "Alibaba Cloud AccessKey Secret", Required: false, Masked: util.MaskAll},
 	}
 }
 
 // Init initializes the plugin with config.
 // The config can contain either:
 // 1. Direct credentials (akId, akSecret) - used during add-storage before PreAdd is called
-// 2. secretRef - used after PreAdd has processed the config
+// 2. secretName and secretNamespace - used after PreAdd has processed the config
 func (o *OSSStorage) Init(config map[string]interface{}) error {
 	o.storageSize = "1Ti"
 
@@ -91,20 +91,20 @@ func (o *OSSStorage) Init(config map[string]interface{}) error {
 		o.subpath = "/"
 	}
 
-	// Check for secretRef (required after PreAdd)
-	if secretRefMap, ok := config["secretRef"].(map[string]interface{}); ok {
-		secretName, nameOk := secretRefMap["name"].(string)
-		secretNamespace, nsOk := secretRefMap["namespace"].(string)
-		if nameOk && nsOk && secretName != "" && secretNamespace != "" {
-			o.secretRef = &corev1.SecretReference{
-				Name:      secretName,
-				Namespace: secretNamespace,
-			}
-			return nil
-		}
+	// Check for secretName and secretNamespace (required after PreAdd)
+	if secretName, ok := config["secretName"].(string); ok && secretName != "" {
+		o.secretName = secretName
+	} else {
+		return fmt.Errorf("secretName is required in storage config for oss type")
 	}
 
-	return fmt.Errorf("secretRef is required in storage config for oss type")
+	if secretNamespace, ok := config["secretNamespace"].(string); ok && secretNamespace != "" {
+		o.secretNamespace = secretNamespace
+	} else {
+		return fmt.Errorf("secretNamespace is required in storage config for oss type")
+	}
+
+	return nil
 }
 
 // Exists checks if the model exists in storage
@@ -114,15 +114,15 @@ func (o *OSSStorage) Exists(modelID string) (bool, error) {
 }
 
 // PreMount verifies PV and PVC resources exist. Secret is expected to already exist
-// (created by PreAdd) and is referenced via secretRef.
+// (created by PreAdd) and is referenced via secretName/secretNamespace.
 func (o *OSSStorage) preMount(c client.Client, storageName, namespace string) error {
 	ctx := context.Background()
 	pvName := storageName
 	pvcName := storageName
 
-	// Verify secretRef is set
-	if o.secretRef == nil {
-		return fmt.Errorf("secretRef is not set, PreAdd must be called before MountStorage")
+	// Verify secret credentials are set
+	if o.secretName == "" || o.secretNamespace == "" {
+		return fmt.Errorf("secretName/secretNamespace are not set, PreAdd must be called before MountStorage")
 	}
 
 	// Step 1: Verify Secret exists (created by PreAdd)
@@ -145,25 +145,25 @@ func (o *OSSStorage) preMount(c client.Client, storageName, namespace string) er
 
 // verifySecretExists verifies that the referenced secret exists
 func (o *OSSStorage) verifySecretExists(ctx context.Context, c client.Client) error {
-	if o.secretRef == nil {
-		return fmt.Errorf("secretRef is not set")
+	if o.secretName == "" || o.secretNamespace == "" {
+		return fmt.Errorf("secretName/secretNamespace are not set")
 	}
 
 	secret := &corev1.Secret{}
-	err := c.Get(ctx, types.NamespacedName{Name: o.secretRef.Name, Namespace: o.secretRef.Namespace}, secret)
+	err := c.Get(ctx, types.NamespacedName{Name: o.secretName, Namespace: o.secretNamespace}, secret)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			return fmt.Errorf("secret %s/%s not found, was PreAdd called?", o.secretRef.Namespace, o.secretRef.Name)
+			return fmt.Errorf("secret %s/%s not found, was PreAdd called?", o.secretNamespace, o.secretName)
 		}
 		return err
 	}
 
 	// Verify secret has required fields
 	if _, ok := secret.Data["akId"]; !ok {
-		return fmt.Errorf("secret %s/%s missing akId field", o.secretRef.Namespace, o.secretRef.Name)
+		return fmt.Errorf("secret %s/%s missing akId field", o.secretNamespace, o.secretName)
 	}
 	if _, ok := secret.Data["akSecret"]; !ok {
-		return fmt.Errorf("secret %s/%s missing akSecret field", o.secretRef.Namespace, o.secretRef.Name)
+		return fmt.Errorf("secret %s/%s missing akSecret field", o.secretNamespace, o.secretName)
 	}
 
 	return nil
@@ -171,8 +171,8 @@ func (o *OSSStorage) verifySecretExists(ctx context.Context, c client.Client) er
 
 // createOrVerifyPV creates the PV or verifies it if already exists
 func (o *OSSStorage) createOrVerifyPV(ctx context.Context, c client.Client, pvName, namespace string) error {
-	if o.secretRef == nil {
-		return fmt.Errorf("secretRef is not set")
+	if o.secretName == "" || o.secretNamespace == "" {
+		return fmt.Errorf("secretName/secretNamespace are not set")
 	}
 
 	pv := &corev1.PersistentVolume{}
@@ -208,8 +208,8 @@ func (o *OSSStorage) createOrVerifyPV(ctx context.Context, c client.Client, pvNa
 					Driver:       "ossplugin.csi.alibabacloud.com",
 					VolumeHandle: pvName,
 					NodePublishSecretRef: &corev1.SecretReference{
-						Name:      o.secretRef.Name,
-						Namespace: o.secretRef.Namespace,
+						Name:      o.secretName,
+						Namespace: o.secretNamespace,
 					},
 					VolumeAttributes: map[string]string{
 						"bucket":    o.bucket,
@@ -229,8 +229,8 @@ func (o *OSSStorage) createOrVerifyPV(ctx context.Context, c client.Client, pvNa
 
 // verifyPV verifies that the existing PV has correct configuration
 func (o *OSSStorage) verifyPV(pv *corev1.PersistentVolume) error {
-	if o.secretRef == nil {
-		return fmt.Errorf("secretRef is not set")
+	if o.secretName == "" || o.secretNamespace == "" {
+		return fmt.Errorf("secretName/secretNamespace are not set")
 	}
 
 	if pv.Spec.CSI == nil {
@@ -242,13 +242,13 @@ func (o *OSSStorage) verifyPV(pv *corev1.PersistentVolume) error {
 	if pv.Spec.CSI.NodePublishSecretRef == nil {
 		return fmt.Errorf("PV %s already exists but has no NodePublishSecretRef", pv.Name)
 	}
-	if pv.Spec.CSI.NodePublishSecretRef.Name != o.secretRef.Name {
+	if pv.Spec.CSI.NodePublishSecretRef.Name != o.secretName {
 		return fmt.Errorf("PV %s already exists but references different secret %q (expected %q)",
-			pv.Name, pv.Spec.CSI.NodePublishSecretRef.Name, o.secretRef.Name)
+			pv.Name, pv.Spec.CSI.NodePublishSecretRef.Name, o.secretName)
 	}
-	if pv.Spec.CSI.NodePublishSecretRef.Namespace != o.secretRef.Namespace {
+	if pv.Spec.CSI.NodePublishSecretRef.Namespace != o.secretNamespace {
 		return fmt.Errorf("PV %s already exists but references secret in different namespace %q (expected %q)",
-			pv.Name, pv.Spec.CSI.NodePublishSecretRef.Namespace, o.secretRef.Namespace)
+			pv.Name, pv.Spec.CSI.NodePublishSecretRef.Namespace, o.secretNamespace)
 	}
 	return nil
 }
@@ -358,7 +358,7 @@ func (o *OSSStorage) MountPath() string {
 }
 
 // PreAdd creates a Kubernetes Secret for OSS credentials and returns a modified config
-// with secretRef instead of raw credentials.
+// with secretName and secretNamespace instead of raw credentials.
 // This is called before the storage configuration is saved to the config file.
 func (o *OSSStorage) PreAdd(opts PreAddOptions) (map[string]interface{}, error) {
 	ctx := context.Background()
@@ -407,7 +407,7 @@ func (o *OSSStorage) PreAdd(opts PreAddOptions) (map[string]interface{}, error) 
 		}
 	}
 
-	// Build new config with secretRef instead of raw credentials
+	// Build new config with secretName/secretNamespace instead of raw credentials
 	newConfig := make(map[string]interface{})
 	for k, v := range opts.Config {
 		// Skip sensitive fields
@@ -417,11 +417,9 @@ func (o *OSSStorage) PreAdd(opts PreAddOptions) (map[string]interface{}, error) 
 		newConfig[k] = v
 	}
 
-	// Add secretRef
-	newConfig["secretRef"] = map[string]interface{}{
-		"name":      secretName,
-		"namespace": opts.Namespace,
-	}
+	// Add flat secret reference fields
+	newConfig["secretName"] = secretName
+	newConfig["secretNamespace"] = opts.Namespace
 
 	return newConfig, nil
 }

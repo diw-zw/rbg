@@ -68,7 +68,7 @@ Examples:
 	cmd.AddCommand(newDeleteSourceCmd())
 	cmd.AddCommand(newResetEngineCmd())
 	cmd.AddCommand(newViewCmd())
-	cmd.AddCommand(newInitCmd())
+	cmd.AddCommand(newInitCmd(cf))
 
 	return cmd
 }
