@@ -144,7 +144,7 @@ func resolveStorageAndModelPath(modelID string, p RunParams, userCfg *cliconfig.
 
 	// If the user explicitly specifies a model path, use it directly.
 	if p.ModelPath != "" {
-		modelPath = p.ModelPath
+		modelPath = filepath.ToSlash(p.ModelPath)
 	}
 
 	if userCfg != nil {
@@ -157,7 +157,7 @@ func resolveStorageAndModelPath(modelID string, p RunParams, userCfg *cliconfig.
 				if sp, err := storageplugin.Get(storageCfg.Type, storageCfg.Config); err == nil {
 					storagePlugin = sp
 					if modelPath == "" {
-						modelPath = filepath.Join(storageplugin.DefaultMountPath, shared.SanitizeModelID(modelID), shared.SanitizeModelID(p.Revision))
+						modelPath = filepath.ToSlash(filepath.Join(storageplugin.DefaultMountPath, shared.SanitizeModelID(modelID), shared.SanitizeModelID(p.Revision)))
 					}
 				}
 			}

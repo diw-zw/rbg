@@ -128,7 +128,7 @@ Examples:
 
 			// Get mount path and construct model path
 			mountPath := storageplugin.DefaultMountPath
-			modelPath := filepath.Join(mountPath, shared.SanitizeModelID(modelID), shared.SanitizeModelID(revision))
+			modelPath := filepath.ToSlash(filepath.Join(mountPath, shared.SanitizeModelID(modelID), shared.SanitizeModelID(revision)))
 
 			// Get namespace
 			ns := util.GetNamespace(cf)
