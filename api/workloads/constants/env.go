@@ -72,4 +72,8 @@ const (
 	// EnvRBGPrefix is the prefix for all RBG system environment variables
 	// Used by controller to filter system env vars during Pod spec comparison
 	EnvRBGPrefix = "RBG_"
+
+	// EnvRBGLWPPrefix matches the RBG_LWP_ prefix for LeaderWorkerPattern
+	// environment variables, used for classification, ordering, and filtering.
+	EnvRBGLWPPrefix = "RBG_LWP_"
 )
