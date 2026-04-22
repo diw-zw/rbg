@@ -65,9 +65,9 @@ func (p *PVCStorage) Exists(modelID string) (bool, error) {
 
 // MountStorage mounts the pre-existing PVC to the pod template.
 // PVC must be created separately before running the workload; this plugin does not provision it.
-func (p *PVCStorage) MountStorage(podTemplate *corev1.PodTemplateSpec, _ MountOptions) error {
+func (p *PVCStorage) MountStorage(podTemplate *corev1.PodTemplateSpec, opts MountOptions) error {
 	pvcName := p.pvcName
-	mountPath := p.MountPath()
+	mountPath := opts.MountPath
 
 	// Add volume
 	volume := corev1.Volume{
@@ -102,11 +102,6 @@ func (p *PVCStorage) MountStorage(podTemplate *corev1.PodTemplateSpec, _ MountOp
 	}
 
 	return nil
-}
-
-// MountPath returns the base mount path for the storage.
-func (p *PVCStorage) MountPath() string {
-	return "/models"
 }
 
 // PreAdd is a no-op for PVC storage as it doesn't need to create any resources.

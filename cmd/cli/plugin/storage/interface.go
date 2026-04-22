@@ -25,6 +25,9 @@ import (
 	"sigs.k8s.io/rbgs/cmd/cli/plugin/util"
 )
 
+// DefaultMountPath is the default path where model storage is mounted in containers.
+const DefaultMountPath = "/models"
+
 // MountOptions contains options passed to MountStorage, including both
 // mount configuration and pre-mount resource provisioning parameters.
 type MountOptions struct {
@@ -38,6 +41,10 @@ type MountOptions struct {
 	// DryRun skips Kubernetes resource provisioning (Secret, PV, PVC creation) while
 	// still adding volumes and mounts to the pod template for preview purposes.
 	DryRun bool
+	// MountPath is the path where storage is mounted in the container.
+	// Typically set to DefaultMountPath ("/models"). The caller is responsible for
+	// specifying this value to ensure consistent mount behavior across plugins.
+	MountPath string
 }
 
 // PreAddOptions contains options passed to PreAdd, used for preparing
@@ -79,12 +86,8 @@ type Plugin interface {
 
 	// MountStorage provisions any required Kubernetes resources (e.g., Secret, PV, PVC)
 	// and modifies the PodTemplateSpec to add volumes and mounts.
-	// The volume is mounted at the path returned by MountPath().
+	// The volume is mounted at the path specified by opts.MountPath.
 	MountStorage(podTemplate *corev1.PodTemplateSpec, opts MountOptions) error
-
-	// MountPath returns the base path where storage is mounted in the container.
-	// The full model path is constructed by the caller as: MountPath() + "/" + sanitized(modelID)
-	MountPath() string
 
 	// PreAdd is called before adding a new storage configuration.
 	// It allows plugins to perform preparatory work such as creating Kubernetes Secrets
