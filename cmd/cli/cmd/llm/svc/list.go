@@ -150,5 +150,10 @@ func extractRBGStatus(rbg *workloadsv1alpha2.RoleBasedGroup) string {
 	if len(rbg.Status.Conditions) == 0 {
 		return "Pending"
 	}
-	return rbg.Status.Conditions[0].Type
+	for _, c := range rbg.Status.Conditions {
+		if c.Type == "Ready" && c.Status == "True" {
+			return "Ready"
+		}
+	}
+	return "NotReady"
 }
