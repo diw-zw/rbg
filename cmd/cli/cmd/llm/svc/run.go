@@ -75,6 +75,7 @@ func resolveEngine(engineType string, cfg *cliconfig.Config) (*cliconfig.EngineC
 type RunParams struct {
 	Mode      string
 	Engine    string
+	Image     string
 	Storage   string
 	Revision  string
 	ModelPath string
@@ -202,11 +203,16 @@ func buildGenerateOptions(name, modelID, modelPath string, modeCfg *runpkg.ModeC
 		resources.Limits = limits
 	}
 
+	image := modeCfg.Image
+	if p.Image != "" {
+		image = p.Image
+	}
+
 	return engineplugin.GenerateOptions{
 		Name:            name,
 		ModelID:         modelID,
 		ModelPath:       modelPath,
-		Image:           modeCfg.Image,
+		Image:           image,
 		Args:            append(modeCfg.Args, p.ArgsList...),
 		Env:             envVars,
 		Resources:       resources,
@@ -564,6 +570,7 @@ func newRunCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
 		replicas       int32
 		mode           string
 		engine         string
+		image          string
 		envVars        []string
 		argsList       []string
 		storage        string
@@ -634,6 +641,7 @@ Examples:
 			params := RunParams{
 				Mode:      mode,
 				Engine:    engine,
+				Image:     image,
 				Storage:   storage,
 				Revision:  revision,
 				ModelPath: modelPath,
@@ -715,6 +723,7 @@ Examples:
 	cmd.Flags().Int32Var(&replicas, "replicas", 1, "Number of replicas")
 	cmd.Flags().StringVar(&mode, "mode", "", "Run mode (default: first mode in model config)")
 	cmd.Flags().StringVar(&engine, "engine", "", "Inference engine override: vllm, sglang (default: from mode config)")
+	cmd.Flags().StringVar(&image, "image", "", "Container image override (default: from mode config)")
 	cmd.Flags().StringArrayVar(&envVars, "env", nil, "Environment variables (KEY=VALUE)")
 	cmd.Flags().StringArrayVar(&argsList, "arg", nil, "Additional arguments for the engine")
 	cmd.Flags().StringVar(&storage, "storage", "", "Storage to use (overrides default)")

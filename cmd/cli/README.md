@@ -87,6 +87,7 @@ kubectl rbg llm svc run NAME MODEL_ID [flags]
 | `--replicas` | | Number of replicas | 1 |
 | `--mode` | | Run mode (from model config) | (first mode in model config) |
 | `--engine` | | Inference engine override (`vllm`, `sglang`) | (from mode config) |
+| `--image` | | Container image override | (from mode config) |
 | `--env` | | Environment variables (`KEY=VALUE`), can be specified multiple times | |
 | `--arg` | | Additional arguments for the engine, can be specified multiple times | |
 | `--storage` | | Storage to use (overrides default) | (current storage) |
@@ -105,6 +106,9 @@ kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --mode throughput
 
 # Override engine
 kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --mode custom --engine sglang
+
+# Use a custom image (e.g., mirror registry)
+kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --image registry.cn-hangzhou.aliyuncs.com/my/vllm:latest
 
 # Run with multiple replicas
 kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --replicas 3
