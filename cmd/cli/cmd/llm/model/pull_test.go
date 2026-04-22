@@ -229,9 +229,9 @@ func extractJSONFromCommand(t *testing.T, cmd []string, args []string) string {
 
 	shellCmd := args[0]
 
-	// Both Case 1 and Case 2 now use printf '%s\n' for safety
+	// Both Case 1 and Case 2 now use printf '%s\n' and sed for safety
 	// Case 1: "original_cmd && downloadedAt=$(date ...) && printf '%s\n' {JSON} | sed ... > /path"
-	// Case 2: "binary args && printf '%s\n' {JSON} > /path"
+	// Case 2: "binary args && downloadedAt=$(date ...) && printf '%s\n' {JSON} | sed ... > /path"
 	//
 	// The JSON is passed as argument to printf (with shellEscape, may be quoted)
 	printfIdx := strings.Index(shellCmd, "printf '%s\\n' ")

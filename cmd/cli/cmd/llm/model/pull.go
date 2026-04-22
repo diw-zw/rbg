@@ -392,9 +392,25 @@ func injectMetadataSave(podTemplate *corev1.PodTemplateSpec, modelID, revision, 
 		`downloadedAt=$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ) && printf '%%s\n' %s | sed "s/{{DOWNLOADED_AT}}/$downloadedAt/g" > %s`,
 		shellEscape(metadataJSON), shellEscape(modelPath+"/.rbg-metadata.json"))
 
-	// Case 1: Container already uses /bin/sh -c, directly append to the command
-	if len(container.Command) >= 2 && container.Command[0] == "/bin/sh" && container.Command[1] == "-c" {
-		if len(container.Args) > 0 {
+	// Case 1: Container already uses /bin/sh -c, directly append to the command.
+	// Handles both:
+	//   a) Command: ["/bin/sh", "-c"], Args: [...]
+	//   b) Command: ["/bin/sh"],       Args: ["-c", ...]
+	isShellC := len(container.Command) >= 2 && container.Command[0] == "/bin/sh" && container.Command[1] == "-c"
+	isShellWithCArg := len(container.Command) == 1 && container.Command[0] == "/bin/sh" && len(container.Args) >= 1 && container.Args[0] == "-c"
+
+	if isShellC || isShellWithCArg {
+		if isShellWithCArg {
+			// Normalize form (b) to form (a) so the rest of the logic is uniform.
+			container.Command = append(container.Command, "-c")
+			container.Args = container.Args[1:]
+		}
+
+		if len(container.Args) == 0 {
+			container.Args = []string{metadataCmd}
+		} else {
+			// Args should typically have exactly one element for /bin/sh -c;
+			// additional elements become $0, $1... and are not executed as commands.
 			container.Args[0] = container.Args[0] + " && " + metadataCmd
 		}
 		return
@@ -416,9 +432,8 @@ func injectMetadataSave(podTemplate *corev1.PodTemplateSpec, modelID, revision, 
 	}
 
 	// Build the wrapped command with metadata save
-	// Use printf instead of echo to prevent flag injection (e.g. echo -e, echo -n)
-	wrappedCmd := fmt.Sprintf(`%s && printf '%%s\n' %s > %s`,
-		fullCmd.String(), shellEscape(metadataJSON), shellEscape(modelPath+"/.rbg-metadata.json"))
+	// Reuse metadataCmd which includes date generation, sed replacement, and safe writing
+	wrappedCmd := fmt.Sprintf(`%s && %s`, fullCmd.String(), metadataCmd)
 
 	container.Command = []string{"/bin/sh", "-c"}
 	container.Args = []string{wrappedCmd}
