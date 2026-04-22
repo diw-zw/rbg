@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llm
+package model
 
 import (
 	"context"
@@ -32,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/rbgs/cmd/cli/cmd/llm/shared"
 	"sigs.k8s.io/rbgs/cmd/cli/config"
 	sourceplugin "sigs.k8s.io/rbgs/cmd/cli/plugin/source"
 	storageplugin "sigs.k8s.io/rbgs/cmd/cli/plugin/storage"
@@ -53,7 +54,7 @@ func newPullCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
 
 This command creates a Kubernetes Job that downloads the specified model from a source
 (e.g., HuggingFace, ModelScope) to the configured storage (e.g., PVC). The model can
-then be used by inference services created with 'kubectl rbg llm run'.
+then be used by inference services created with 'kubectl rbg llm svc run'.
 
 The command requires:
   - A configured source (use 'kubectl rbg llm config add-source' to configure)
@@ -61,16 +62,16 @@ The command requires:
 
 Examples:
   # Pull a model with default settings
-  kubectl rbg llm pull Qwen/Qwen3.5-0.8B
+  kubectl rbg llm model pull Qwen/Qwen3.5-0.8B
 
   # Pull a specific revision of a model
-  kubectl rbg llm pull Qwen/Qwen3.5-0.8B --revision v1.0
+  kubectl rbg llm model pull Qwen/Qwen3.5-0.8B --revision v1.0
 
   # Pull using a specific source and storage
-  kubectl rbg llm pull Qwen/Qwen3.5-0.8B --source huggingface --storage model-pvc
+  kubectl rbg llm model pull Qwen/Qwen3.5-0.8B --source huggingface --storage model-pvc
 
   # Pull without waiting for completion
-  kubectl rbg llm pull Qwen/Qwen3.5-0.8B --wait=false`,
+  kubectl rbg llm model pull Qwen/Qwen3.5-0.8B --wait=false`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			modelID := args[0]
@@ -127,7 +128,7 @@ Examples:
 
 			// Get mount path and construct model path
 			mountPath := storagePlugin.MountPath()
-			modelPath := filepath.Join(mountPath, sanitizeModelID(modelID), sanitizeModelID(revision))
+			modelPath := filepath.Join(mountPath, shared.SanitizeModelID(modelID), shared.SanitizeModelID(revision))
 
 			// Get namespace
 			ns := util.GetNamespace(cf)
@@ -218,7 +219,7 @@ Examples:
 // buildPullJob creates a Job from the pod template
 func buildPullJob(modelID string, podTemplate *corev1.PodTemplateSpec) *batchv1.Job {
 	timestamp := time.Now().Unix()
-	sanitizedID := sanitizeModelID(modelID)
+	sanitizedID := shared.SanitizeModelID(modelID)
 	jobName := fmt.Sprintf("pull-%s-%d", sanitizedID, timestamp)
 
 	labels := map[string]string{
@@ -250,10 +251,16 @@ func buildPullJob(modelID string, podTemplate *corev1.PodTemplateSpec) *batchv1.
 	}
 }
 
-// waitForJobCompletionWithProgress waits for job completion with animated progress indicator
+// waitForJobCompletionWithProgress waits for job completion with animated progress indicator.
+// Uses a fast UI ticker (0.5s) for smooth animation but only queries API every 10s to reduce server load.
 func waitForJobCompletionWithProgress(ctx context.Context, clientset *kubernetes.Clientset, namespace, jobName string, jobDescription string) (JobState, *batchv1.Job, error) {
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
+	// UI refresh ticker for smooth animation (0.5s)
+	uiTicker := time.NewTicker(500 * time.Millisecond)
+	defer uiTicker.Stop()
+
+	// API query interval: every 20 UI ticks = 10s
+	const apiQueryInterval = 20
+	tickCount := 0
 
 	dots := 0
 	animate := func() {
@@ -267,8 +274,16 @@ func waitForJobCompletionWithProgress(ctx context.Context, clientset *kubernetes
 		case <-ctx.Done():
 			fmt.Println()
 			return JobStatePending, nil, ctx.Err()
-		case <-ticker.C:
+		case <-uiTicker.C:
+			tickCount++
 			animate()
+
+			// Only query API every apiQueryInterval ticks
+			if tickCount%apiQueryInterval != 0 {
+				continue
+			}
+
+			tickCount = 0
 			job, err := clientset.BatchV1().Jobs(namespace).Get(ctx, jobName, metav1.GetOptions{})
 			if err != nil {
 				fmt.Println()
@@ -418,7 +433,7 @@ func shellEscape(s string) string {
 	if safeShellChars.MatchString(s) {
 		return s
 	}
-	// Escape single quotes by replacing ' with '\''
-	escaped := strings.ReplaceAll(s, "'", "'\"'\"'")
+	// Escape single quotes by replacing ' with '"'"' (end quote, literal quote, reopen quote)
+	escaped := strings.ReplaceAll(s, "'", `'"'"'`)
 	return "'" + escaped + "'"
 }

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llm
+package svc
 
 import (
 	"encoding/json"
@@ -26,7 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 
-	llmmeta "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/metadata"
+	llmmeta "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/svc/metadata"
 )
 
 // TestMain sets up an isolated test environment for all tests in this package.

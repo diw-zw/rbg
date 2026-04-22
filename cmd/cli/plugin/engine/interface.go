@@ -18,6 +18,7 @@ package engine
 
 import (
 	"fmt"
+	"sort"
 
 	corev1 "k8s.io/api/core/v1"
 	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
@@ -86,12 +87,13 @@ func ValidateConfig(pluginType string, config map[string]interface{}) error {
 	return util.ValidateConfig(factory().ConfigFields(), config)
 }
 
-// RegisteredNames returns all registered engine plugin type names.
+// RegisteredNames returns all registered engine plugin type names in alphabetical order.
 func RegisteredNames() []string {
 	names := make([]string, 0, len(registry))
 	for name := range registry {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 

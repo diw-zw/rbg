@@ -23,11 +23,13 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"sigs.k8s.io/rbgs/cmd/cli/config"
 	storageplugin "sigs.k8s.io/rbgs/cmd/cli/plugin/storage"
+	"sigs.k8s.io/rbgs/cmd/cli/util"
 )
 
-func newAddStorageCmd() *cobra.Command {
+func newAddStorageCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
 	var storageType string
 	var configFlags map[string]string
 	var interactive bool
@@ -95,7 +97,27 @@ Examples:
 				return err
 			}
 
-			if err := cfg.AddStorage(name, storageType, configMap); err != nil {
+			// Call PreAdd to perform any preparatory work (e.g., creating Kubernetes Secrets)
+			// This also returns a modified config with secretRef instead of raw credentials
+			ns := util.GetNamespace(cf)
+			ctrlClient, err := util.GetControllerRuntimeClient(cf)
+			if err != nil {
+				return fmt.Errorf("failed to create controller client: %w", err)
+			}
+
+			preAddOpts := storageplugin.PreAddOptions{
+				Client:      ctrlClient,
+				StorageName: name,
+				Namespace:   ns,
+				Config:      configMap,
+			}
+
+			modifiedConfig, err := storageplugin.PreAdd(storageType, preAddOpts)
+			if err != nil {
+				return fmt.Errorf("failed to prepare storage: %w", err)
+			}
+
+			if err := cfg.AddStorage(name, storageType, modifiedConfig); err != nil {
 				return err
 			}
 

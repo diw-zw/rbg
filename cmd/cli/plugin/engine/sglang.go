@@ -113,6 +113,10 @@ func (s *SGLangEngine) generatePodTemplate(opts GenerateOptions) (*corev1.PodTem
 		opts.ModelPath,
 		"--served-model-name",
 		opts.Name,
+		"--host",
+		"0.0.0.0",
+		"--port",
+		fmt.Sprintf("%d", s.Port),
 	}
 
 	// Add distributed deployment args for multi-node setup

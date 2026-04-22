@@ -21,10 +21,12 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
 func TestNewAddStorageCmd(t *testing.T) {
-	cmd := newAddStorageCmd()
+	cf := genericclioptions.NewConfigFlags(true)
+	cmd := newAddStorageCmd(cf)
 
 	assert.NotNil(t, cmd)
 	assert.Equal(t, "add-storage NAME", cmd.Use)
@@ -83,8 +85,9 @@ func TestNewDeleteStorageCmd(t *testing.T) {
 }
 
 func TestStorageCommands_ReturnCobraCommand(t *testing.T) {
+	cf := genericclioptions.NewConfigFlags(true)
+
 	commands := []func() *cobra.Command{
-		newAddStorageCmd,
 		newGetStoragesCmd,
 		newUseStorageCmd,
 		newSetStorageCmd,
@@ -95,4 +98,8 @@ func TestStorageCommands_ReturnCobraCommand(t *testing.T) {
 		cmd := fn()
 		assert.IsType(t, &cobra.Command{}, cmd)
 	}
+
+	// Test newAddStorageCmd separately since it requires ConfigFlags
+	cmd := newAddStorageCmd(cf)
+	assert.IsType(t, &cobra.Command{}, cmd)
 }

@@ -23,6 +23,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"sigs.k8s.io/rbgs/cmd/cli/plugin/util"
 )
 
@@ -35,7 +36,8 @@ func TestNewViewCmd(t *testing.T) {
 }
 
 func TestNewInitCmd(t *testing.T) {
-	cmd := newInitCmd()
+	cf := genericclioptions.NewConfigFlags(true)
+	cmd := newInitCmd(cf)
 
 	assert.NotNil(t, cmd)
 	assert.Equal(t, "init", cmd.Use)
@@ -43,14 +45,19 @@ func TestNewInitCmd(t *testing.T) {
 }
 
 func TestMiscCommands_ReturnCobraCommand(t *testing.T) {
-	commands := []func() *cobra.Command{
-		newViewCmd,
-		newInitCmd,
+	cf := genericclioptions.NewConfigFlags(true)
+	commands := []struct {
+		name string
+		cmd  *cobra.Command
+	}{
+		{name: "view", cmd: newViewCmd()},
+		{name: "init", cmd: newInitCmd(cf)},
 	}
 
-	for _, fn := range commands {
-		cmd := fn()
-		assert.IsType(t, &cobra.Command{}, cmd)
+	for _, tc := range commands {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.IsType(t, &cobra.Command{}, tc.cmd)
+		})
 	}
 }
 

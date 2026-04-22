@@ -18,10 +18,11 @@ package config
 
 import (
 	"github.com/spf13/cobra"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
 // NewConfigCmd creates the config command
-func NewConfigCmd() *cobra.Command {
+func NewConfigCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Manage LLM configuration",
@@ -53,7 +54,7 @@ Examples:
 	}
 
 	// Add subcommands
-	cmd.AddCommand(newAddStorageCmd())
+	cmd.AddCommand(newAddStorageCmd(cf))
 	cmd.AddCommand(newAddSourceCmd())
 	cmd.AddCommand(newGetStoragesCmd())
 	cmd.AddCommand(newGetSourcesCmd())
@@ -67,7 +68,7 @@ Examples:
 	cmd.AddCommand(newDeleteSourceCmd())
 	cmd.AddCommand(newResetEngineCmd())
 	cmd.AddCommand(newViewCmd())
-	cmd.AddCommand(newInitCmd())
+	cmd.AddCommand(newInitCmd(cf))
 
 	return cmd
 }

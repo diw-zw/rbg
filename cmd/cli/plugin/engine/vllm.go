@@ -141,6 +141,10 @@ func (v *VLLMEngine) generateArgs(opts GenerateOptions, isWorker bool) []string 
 		opts.ModelPath,
 		"--served-model-name",
 		opts.Name,
+		"--host",
+		"0.0.0.0",
+		"--port",
+		fmt.Sprintf("%d", v.Port),
 	}
 
 	// Add distributed deployment args for multi-node setup

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llm
+package svc
 
 import (
 	"testing"
@@ -120,20 +120,4 @@ func TestDeleteFakeClient_DeleteAcrossNamespaces(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, remaining.Items, 1)
 	assert.Equal(t, "svc-b", remaining.Items[0].Name)
-}
-
-// --- llm_test.go coverage: delete registered as subcommand ---
-
-func TestNewLLMCmd_HasDeleteSubcommand(t *testing.T) {
-	cf := genericclioptions.NewConfigFlags(true)
-	cmd := NewLLMCmd(cf)
-
-	var found bool
-	for _, sub := range cmd.Commands() {
-		if sub.Name() == "delete" {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "expected 'delete' subcommand to be registered under llm")
 }

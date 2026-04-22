@@ -14,9 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llm
+package model
 
 import (
+	"bytes"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -82,10 +85,17 @@ func TestBuildListModelsJob_Limits(t *testing.T) {
 // --- printModelsList ---
 
 func TestPrintModelsList_Empty(t *testing.T) {
-	// Should not panic and should print "No models found"
-	// (output goes to stdout; we just verify no panic)
-	printModelsList(nil, "my-storage")
-	printModelsList([]ModelInfo{}, "my-storage")
+	output := captureStdout(t, func() {
+		printModelsList(nil, "my-storage")
+	})
+	assert.Contains(t, output, "No models found in storage")
+}
+
+func TestPrintModelsList_EmptySlice(t *testing.T) {
+	output := captureStdout(t, func() {
+		printModelsList([]ModelInfo{}, "my-storage")
+	})
+	assert.Contains(t, output, "No models found in storage")
 }
 
 func TestPrintModelsList_WithModels(t *testing.T) {
@@ -93,14 +103,55 @@ func TestPrintModelsList_WithModels(t *testing.T) {
 		{ModelID: "org/llama", Revision: "main", DownloadedAt: "2025-01-01T00:00:00Z"},
 		{ModelID: "org/qwen", Revision: "v1.0"},
 	}
-	// Just verify no panic; output goes to real stdout
-	printModelsList(models, "test-storage")
+	output := captureStdout(t, func() {
+		printModelsList(models, "test-storage")
+	})
+	assert.Contains(t, output, "test-storage")
+	assert.Contains(t, output, "org/llama")
+	assert.Contains(t, output, "org/qwen")
+	assert.Contains(t, output, "Total: 2 model(s)")
 }
 
 func TestPrintModelsList_UnknownDownloadedAt(t *testing.T) {
-	// "unknown" downloadedAt should be replaced with "-" in output (no panic)
 	models := []ModelInfo{
 		{ModelID: "m", Revision: "r", DownloadedAt: "unknown"},
 	}
-	printModelsList(models, "s")
+	output := captureStdout(t, func() {
+		printModelsList(models, "s")
+	})
+	// "unknown" downloadedAt should be replaced with "-" in output
+	assert.Contains(t, output, "m")
+	assert.NotContains(t, output, "unknown")
+}
+
+func TestPrintModelsList_EmptyDownloadedAt(t *testing.T) {
+	models := []ModelInfo{
+		{ModelID: "m", Revision: "r", DownloadedAt: ""},
+	}
+	output := captureStdout(t, func() {
+		printModelsList(models, "s")
+	})
+	// Empty downloadedAt should be replaced with "-" in output
+	assert.Contains(t, output, "m")
+}
+
+// captureStdout captures stdout output during the execution of fn.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	fn()
+
+	_ = w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = io.Copy(&buf, r)
+	require.NoError(t, err)
+	_ = r.Close()
+
+	return buf.String()
 }
