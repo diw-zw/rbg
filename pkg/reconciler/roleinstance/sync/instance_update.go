@@ -72,6 +72,19 @@ func (c *realControl) updatePod(ctx context.Context, instance *workloadsv1alpha2
 			break
 		}
 	}
+	if oldRevision == nil {
+		logger.Info("No matching ControllerRevision found for pod, falling back to ReCreate",
+			"pod", klog.KObj(pod),
+			"revisionHash", pod.Labels[apps.ControllerRevisionHashLabelKey])
+		c.recorder.Eventf(instance, v1.EventTypeWarning, "RevisionNotFound",
+			"no matching revision found for pod %s, falling back to recreate", pod.Name)
+		if err := c.Delete(ctx, pod); err != nil {
+			c.recorder.Eventf(instance, v1.EventTypeWarning, "FailedUpdatePodReCreate",
+				"failed to delete pod %s for update: %v", pod.Name, err)
+			return 0, err
+		}
+		return 0, nil
+	}
 	coreControl := instancecore.New(instance)
 	res := c.inplaceControl.Update(ctx, pod, oldRevision, updateRevision, coreControl.GetUpdateOptions())
 	if res.InPlaceUpdate {
@@ -84,7 +97,7 @@ func (c *realControl) updatePod(ctx context.Context, instance *workloadsv1alpha2
 		return res.DelayDuration, res.UpdateErr
 	}
 	logger.Info("Instance can not update Pod in-place, so it will back off to ReCreate", "pod", klog.KObj(pod))
-	if err := c.Delete(context.TODO(), pod); err != nil {
+	if err := c.Delete(ctx, pod); err != nil {
 		c.recorder.Eventf(instance, v1.EventTypeWarning, "FailedUpdatePodReCreate", "failed to delete pod %s for update: %v", pod.Name, err)
 		return 0, err
 	}
