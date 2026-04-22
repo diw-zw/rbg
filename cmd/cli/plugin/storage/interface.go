@@ -89,11 +89,11 @@ type Plugin interface {
 	// PreAdd is called before adding a new storage configuration.
 	// It allows plugins to perform preparatory work such as creating Kubernetes Secrets
 	// for sensitive data. The plugin should create necessary resources and return a
-	// modified config that replaces sensitive values with references (e.g., secretRef).
+	// modified config that replaces sensitive values with references (e.g., secretName/secretNamespace).
 	//
 	// For example, an OSS plugin might:
 	// 1. Create a Secret containing akId and akSecret
-	// 2. Return a config with secretRef {namespace, name} instead of the raw credentials
+	// 2. Return a config with secretName and secretNamespace instead of the raw credentials
 	//
 	// If no preparation is needed, the plugin should return the original config.
 	PreAdd(opts PreAddOptions) (config map[string]interface{}, err error)
@@ -153,7 +153,7 @@ func GetFields(pluginType string) []util.ConfigField {
 // PreAdd calls the PreAdd method for the specified plugin type with the given options.
 // This should be called before adding a new storage configuration to perform any
 // necessary preparatory work (e.g., creating Kubernetes Secrets for sensitive data).
-// Returns the modified config (with secretRef instead of raw credentials) and any error.
+// Returns the modified config (with secretName/secretNamespace instead of raw credentials) and any error.
 func PreAdd(pluginType string, opts PreAddOptions) (map[string]interface{}, error) {
 	factory, ok := registry[pluginType]
 	if !ok {

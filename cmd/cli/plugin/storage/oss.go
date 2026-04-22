@@ -53,23 +53,23 @@ func (o *OSSStorage) Name() string {
 	return ossStorageType
 }
 
-// ConfigFields returns the config fields this plugin accepts
-// Note: akId and akSecret are only required during initial configuration (add-storage).
-// After PreAdd processes the config, they are replaced with secretRef.
+// ConfigFields returns the config fields this plugin accepts.
+// akId and akSecret are required during initial configuration (add-storage/init) to
+// create the Secret via PreAdd. After PreAdd, the saved config uses secretName and
+// secretNamespace instead.
 func (o *OSSStorage) ConfigFields() []util.ConfigField {
 	return []util.ConfigField{
 		{Key: "url", Description: "OSS endpoint URL (e.g., oss-cn-hangzhou.aliyuncs.com)", Required: true},
 		{Key: "bucket", Description: "OSS bucket name", Required: true},
 		{Key: "subpath", Description: "subpath within the bucket", Required: false},
-		{Key: "akId", Description: "Alibaba Cloud AccessKey ID", Required: false},
-		{Key: "akSecret", Description: "Alibaba Cloud AccessKey Secret", Required: false, Masked: util.MaskAll},
+		{Key: "akId", Description: "Alibaba Cloud AccessKey ID", Required: true},
+		{Key: "akSecret", Description: "Alibaba Cloud AccessKey Secret", Required: true, Masked: util.MaskAll},
 	}
 }
 
-// Init initializes the plugin with config.
-// The config can contain either:
-// 1. Direct credentials (akId, akSecret) - used during add-storage before PreAdd is called
-// 2. secretName and secretNamespace - used after PreAdd has processed the config
+// Init initializes the plugin with a config that has been processed by PreAdd.
+// The config must contain secretName and secretNamespace (the Secret reference
+// created by PreAdd). Direct credentials (akId/akSecret) are not accepted here.
 func (o *OSSStorage) Init(config map[string]interface{}) error {
 	o.storageSize = "1Ti"
 
@@ -193,7 +193,8 @@ func (o *OSSStorage) createOrVerifyPV(ctx context.Context, c client.Client, pvNa
 
 	newPV := &corev1.PersistentVolume{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: pvName,
+			Name:      pvName,
+			Namespace: namespace,
 			Labels: map[string]string{
 				"alicloud-pvname": pvName,
 			},
@@ -250,6 +251,36 @@ func (o *OSSStorage) verifyPV(pv *corev1.PersistentVolume) error {
 		return fmt.Errorf("PV %s already exists but references secret in different namespace %q (expected %q)",
 			pv.Name, pv.Spec.CSI.NodePublishSecretRef.Namespace, o.secretNamespace)
 	}
+
+	// Validate VolumeHandle matches storage name
+	if pv.Spec.CSI.VolumeHandle != pv.Name {
+		return fmt.Errorf("PV %s already exists but has unexpected VolumeHandle %q (expected %q)",
+			pv.Name, pv.Spec.CSI.VolumeHandle, pv.Name)
+	}
+
+	// Validate OSS-specific VolumeAttributes match current config
+	attrs := pv.Spec.CSI.VolumeAttributes
+	if attrs == nil {
+		return fmt.Errorf("PV %s already exists but has no VolumeAttributes", pv.Name)
+	}
+	if attrs["bucket"] != o.bucket {
+		return fmt.Errorf("PV %s already exists but points to different bucket %q (expected %q)",
+			pv.Name, attrs["bucket"], o.bucket)
+	}
+	if attrs["url"] != o.url {
+		return fmt.Errorf("PV %s already exists but points to different URL %q (expected %q)",
+			pv.Name, attrs["url"], o.url)
+	}
+	if attrs["path"] != o.subpath {
+		return fmt.Errorf("PV %s already exists but points to different path %q (expected %q)",
+			pv.Name, attrs["path"], o.subpath)
+	}
+	expectedOpts := "-o max_stat_cache_size=0 -o allow_other"
+	if attrs["otherOpts"] != expectedOpts {
+		return fmt.Errorf("PV %s already exists but has different otherOpts %q (expected %q)",
+			pv.Name, attrs["otherOpts"], expectedOpts)
+	}
+
 	return nil
 }
 

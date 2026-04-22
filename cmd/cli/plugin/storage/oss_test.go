@@ -77,9 +77,9 @@ func TestOSSStorage_ConfigFields(t *testing.T) {
 	assert.NotContains(t, fieldKeys, "storageSize")
 
 	// Check required fields:
-	// - url, bucket are always required
-	// - subpath, akId, akSecret are optional (akId/akSecret only needed during add-storage)
-	requiredFields := map[string]bool{"url": true, "bucket": true}
+	// - url, bucket, akId, akSecret are always required
+	// - subpath is optional (akId/akSecret only needed during add-storage)
+	requiredFields := map[string]bool{"url": true, "bucket": true, "akId": true, "akSecret": true}
 	for _, f := range fields {
 		if requiredFields[f.Key] {
 			assert.True(t, f.Required, "field %s should be required", f.Key)
@@ -338,7 +338,7 @@ func TestOSSStorage_MountStorage_CreatesResources(t *testing.T) {
 
 	// Verify PV was created
 	pv := &corev1.PersistentVolume{}
-	err = fakeClient.Get(context.Background(), types.NamespacedName{Name: "test-oss"}, pv)
+	err = fakeClient.Get(context.Background(), types.NamespacedName{Name: "test-oss", Namespace: "default"}, pv)
 	require.NoError(t, err)
 	assert.Equal(t, "ossplugin.csi.alibabacloud.com", pv.Spec.CSI.Driver)
 	assert.Equal(t, "test-oss-oss-secret", pv.Spec.CSI.NodePublishSecretRef.Name)
@@ -453,6 +453,12 @@ func TestOSSStorage_MountStorage_VerifiesExistingPV(t *testing.T) {
 						Name:      "test-oss-oss-secret",
 						Namespace: "default",
 					},
+					VolumeAttributes: map[string]string{
+						"bucket":    "test-bucket",
+						"otherOpts": "-o max_stat_cache_size=0 -o allow_other",
+						"path":      "models",
+						"url":       "oss-cn-hangzhou.aliyuncs.com",
+					},
 				},
 			},
 			StorageClassName: "oss",
@@ -504,10 +510,17 @@ func TestOSSStorage_MountStorage_VerifiesExistingPVC(t *testing.T) {
 		Spec: corev1.PersistentVolumeSpec{
 			PersistentVolumeSource: corev1.PersistentVolumeSource{
 				CSI: &corev1.CSIPersistentVolumeSource{
-					Driver: "ossplugin.csi.alibabacloud.com",
+					Driver:       "ossplugin.csi.alibabacloud.com",
+					VolumeHandle: "test-oss",
 					NodePublishSecretRef: &corev1.SecretReference{
 						Name:      "test-oss-oss-secret",
 						Namespace: "default",
+					},
+					VolumeAttributes: map[string]string{
+						"bucket":    "test-bucket",
+						"otherOpts": "-o max_stat_cache_size=0 -o allow_other",
+						"path":      "models",
+						"url":       "oss-cn-hangzhou.aliyuncs.com",
 					},
 				},
 			},
@@ -577,10 +590,17 @@ func TestOSSStorage_MountStorage_FailsOnDifferentPVC(t *testing.T) {
 		Spec: corev1.PersistentVolumeSpec{
 			PersistentVolumeSource: corev1.PersistentVolumeSource{
 				CSI: &corev1.CSIPersistentVolumeSource{
-					Driver: "ossplugin.csi.alibabacloud.com",
+					Driver:       "ossplugin.csi.alibabacloud.com",
+					VolumeHandle: "test-oss",
 					NodePublishSecretRef: &corev1.SecretReference{
 						Name:      "test-oss-oss-secret",
 						Namespace: "default",
+					},
+					VolumeAttributes: map[string]string{
+						"bucket":    "test-bucket",
+						"otherOpts": "-o max_stat_cache_size=0 -o allow_other",
+						"path":      "models",
+						"url":       "oss-cn-hangzhou.aliyuncs.com",
 					},
 				},
 			},
