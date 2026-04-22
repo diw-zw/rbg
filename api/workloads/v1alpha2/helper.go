@@ -42,10 +42,22 @@ func (rbg *RoleBasedGroup) GetCommonLabelsFromRole(role *RoleSpec) map[string]st
 }
 
 // GetCommonAnnotationsFromRole returns common annotations for a role.
+// System-managed role annotations (e.g. RoleWorkloadTypeAnnotationKey,
+// RoleSizeAnnotationKey) are filtered out to prevent them from leaking
+// into downstream workload/Pod metadata or being overridden by user values.
 func (rbg *RoleBasedGroup) GetCommonAnnotationsFromRole(role *RoleSpec) map[string]string {
-	return map[string]string{
+	annotations := map[string]string{
 		constants.RoleSizeAnnotationKey: fmt.Sprintf("%d", *role.Replicas),
 	}
+	// Propagate role annotations, but filter out system-managed keys that
+	// must not appear on downstream Pods/STS/Deployments.
+	for k, v := range role.Annotations {
+		if constants.IsSystemManagedRoleAnnotation(k) {
+			continue
+		}
+		annotations[k] = v
+	}
+	return annotations
 }
 
 // GetGroupSize returns the total number of pods in the group.
@@ -387,7 +399,7 @@ func IsStatefulRole(role *RoleSpec) bool {
 	if role == nil {
 		return false
 	}
-	switch role.Workload.String() {
+	switch role.GetWorkloadType() {
 	case constants.DeploymentWorkloadType:
 		return false
 	case constants.StatefulSetWorkloadType, constants.LeaderWorkerSetWorkloadType, "":

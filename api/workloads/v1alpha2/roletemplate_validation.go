@@ -105,7 +105,12 @@ func validateRoleTemplateFields(
 		}
 
 		// Defense-in-depth: CRD validates this, but controller validates as well.
-		if role.Workload.Kind == "InstanceSet" {
+		// Note: This check applies regardless of how the workload type was set (via
+		// annotation or default). The annotation is intended for conversion compatibility
+		// only, but if a user manually sets InstanceSet via annotation on a new v1alpha2
+		// RBG, this validation correctly blocks templateRef for that workload type.
+		workloadSpec := role.GetWorkloadSpec()
+		if workloadSpec.Kind == "InstanceSet" {
 			return fmt.Errorf(
 				"spec.roles[%d].templateRef: not supported for InstanceSet workloads",
 				index,
@@ -114,7 +119,7 @@ func validateRoleTemplateFields(
 
 		// LeaderWorkerSet workload does not support templateRef.
 		// Only RoleInstanceSet with LeaderWorkerPattern supports templateRef.
-		if role.Workload.Kind == "LeaderWorkerSet" {
+		if workloadSpec.Kind == "LeaderWorkerSet" {
 			return fmt.Errorf(
 				"spec.roles[%d].templateRef: not supported for LeaderWorkerSet workloads (use RoleInstanceSet with LeaderWorkerPattern instead)",
 				index,

@@ -18,11 +18,13 @@ package v1alpha2
 
 import (
 	"encoding/json"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/rbgs/api/workloads/constants"
 	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
 	"sigs.k8s.io/rbgs/test/utils"
 )
@@ -70,10 +72,10 @@ func (rw *StandaloneRoleWrapper) WithRestartPolicy(rp workloadsv1alpha2.RestartP
 }
 
 func (rw *StandaloneRoleWrapper) WithWorkload(apiVersion, kind string) *StandaloneRoleWrapper {
-	rw.Workload = workloadsv1alpha2.WorkloadSpec{
-		APIVersion: apiVersion,
-		Kind:       kind,
+	if rw.Annotations == nil {
+		rw.Annotations = make(map[string]string)
 	}
+	rw.Annotations[constants.RoleWorkloadTypeAnnotationKey] = fmt.Sprintf("%s/%s", apiVersion, kind)
 	return rw
 }
 
@@ -104,7 +106,7 @@ func (rw *StandaloneRoleWrapper) WithPatchRef(name string, patch *runtime.RawExt
 }
 
 // BuildStandaloneRole creates a basic standalone role.
-// Sets the Workload to RoleInstanceSet (the v1alpha2 default stateful workload type).
+// The default workload type for v1alpha2 is RoleInstanceSet (no annotation needed).
 func BuildStandaloneRole(name string) *StandaloneRoleWrapper {
 	template := BuildBasicPodTemplateSpec()
 	return &StandaloneRoleWrapper{
@@ -113,10 +115,6 @@ func BuildStandaloneRole(name string) *StandaloneRoleWrapper {
 			Replicas: ptr.To(int32(1)),
 			RolloutStrategy: &workloadsv1alpha2.RolloutStrategy{
 				Type: workloadsv1alpha2.RollingUpdateStrategyType,
-			},
-			Workload: workloadsv1alpha2.WorkloadSpec{
-				APIVersion: "workloads.x-k8s.io/v1alpha2",
-				Kind:       "RoleInstanceSet",
 			},
 			Pattern: workloadsv1alpha2.Pattern{
 				StandalonePattern: &workloadsv1alpha2.StandalonePattern{
@@ -182,8 +180,17 @@ func (rw *LeaderWorkerRoleWrapper) WithTemplateRef(name string) *LeaderWorkerRol
 	return rw
 }
 
+func (rw *LeaderWorkerRoleWrapper) WithWorkload(apiVersion, kind string) *LeaderWorkerRoleWrapper {
+	if rw.Annotations == nil {
+		rw.Annotations = make(map[string]string)
+	}
+	rw.Annotations[constants.RoleWorkloadTypeAnnotationKey] = fmt.Sprintf("%s/%s", apiVersion, kind)
+	return rw
+}
+
 // BuildLeaderWorkerRole creates a basic leader-worker role.
-// Sets the Workload to LeaderWorkerSet.
+// Uses LeaderWorkerPattern; the workload type defaults to RoleInstanceSet in v1alpha2
+// (LeaderWorkerSet is only set if explicitly configured via WithWorkload annotation).
 func BuildLeaderWorkerRole(name string) *LeaderWorkerRoleWrapper {
 	template := BuildBasicPodTemplateSpec()
 	return &LeaderWorkerRoleWrapper{
@@ -192,10 +199,6 @@ func BuildLeaderWorkerRole(name string) *LeaderWorkerRoleWrapper {
 			Replicas: ptr.To(int32(1)),
 			RolloutStrategy: &workloadsv1alpha2.RolloutStrategy{
 				Type: workloadsv1alpha2.RollingUpdateStrategyType,
-			},
-			Workload: workloadsv1alpha2.WorkloadSpec{
-				APIVersion: "leaderworkerset.x-k8s.io/v1",
-				Kind:       "LeaderWorkerSet",
 			},
 			Pattern: workloadsv1alpha2.Pattern{
 				LeaderWorkerPattern: &workloadsv1alpha2.LeaderWorkerPattern{
