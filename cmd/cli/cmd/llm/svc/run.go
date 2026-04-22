@@ -73,14 +73,16 @@ func resolveEngine(engineType string, cfg *cliconfig.Config) (*cliconfig.EngineC
 
 // RunParams holds all flag values supplied to the run command.
 type RunParams struct {
-	Mode     string
-	Engine   string
-	Storage  string
-	Revision string
-	EnvVars  []string
-	ArgsList []string
-	DryRun   bool
-	Replicas int32
+	Mode      string
+	Engine    string
+	Image     string
+	Storage   string
+	Revision  string
+	ModelPath string
+	EnvVars   []string
+	ArgsList  []string
+	DryRun    bool
+	Replicas  int32
 }
 
 // modeConfigResult holds the result of mode config resolution.
@@ -140,6 +142,11 @@ func resolveStorageAndModelPath(modelID string, p RunParams, userCfg *cliconfig.
 	var storagePlugin storageplugin.Plugin
 	var storageName string
 
+	// If the user explicitly specifies a model path, use it directly.
+	if p.ModelPath != "" {
+		modelPath = filepath.ToSlash(p.ModelPath)
+	}
+
 	if userCfg != nil {
 		storageName = userCfg.CurrentStorage
 		if p.Storage != "" {
@@ -149,7 +156,9 @@ func resolveStorageAndModelPath(modelID string, p RunParams, userCfg *cliconfig.
 			if storageCfg, err := userCfg.GetStorage(storageName); err == nil {
 				if sp, err := storageplugin.Get(storageCfg.Type, storageCfg.Config); err == nil {
 					storagePlugin = sp
-					modelPath = filepath.Join(sp.MountPath(), shared.SanitizeModelID(modelID), shared.SanitizeModelID(p.Revision))
+					if modelPath == "" {
+						modelPath = filepath.ToSlash(filepath.Join(storageplugin.DefaultMountPath, shared.SanitizeModelID(modelID), shared.SanitizeModelID(p.Revision)))
+					}
 				}
 			}
 		}
@@ -194,11 +203,16 @@ func buildGenerateOptions(name, modelID, modelPath string, modeCfg *runpkg.ModeC
 		resources.Limits = limits
 	}
 
+	image := modeCfg.Image
+	if p.Image != "" {
+		image = p.Image
+	}
+
 	return engineplugin.GenerateOptions{
 		Name:            name,
 		ModelID:         modelID,
 		ModelPath:       modelPath,
-		Image:           modeCfg.Image,
+		Image:           image,
 		Args:            append(modeCfg.Args, p.ArgsList...),
 		Env:             envVars,
 		Resources:       resources,
@@ -282,6 +296,7 @@ func generateRBG(name, modelID, namespace string, p RunParams, userCfg *cliconfi
 			StorageName: storageRes.storageName,
 			Namespace:   namespace,
 			DryRun:      p.DryRun,
+			MountPath:   storageplugin.DefaultMountPath,
 		}
 		if !p.DryRun {
 			c, err := util.GetControllerRuntimeClient(cf)
@@ -555,10 +570,12 @@ func newRunCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
 		replicas       int32
 		mode           string
 		engine         string
+		image          string
 		envVars        []string
 		argsList       []string
 		storage        string
 		revision       string
+		modelPath      string
 		dryRun         bool
 		waitReady      bool
 		waitTimeout    time.Duration
@@ -622,14 +639,16 @@ Examples:
 
 			// Generate RBG (includes config resolution, pattern generation, storage mounting)
 			params := RunParams{
-				Mode:     mode,
-				Engine:   engine,
-				Storage:  storage,
-				Revision: revision,
-				EnvVars:  envVars,
-				ArgsList: argsList,
-				DryRun:   dryRun,
-				Replicas: replicas,
+				Mode:      mode,
+				Engine:    engine,
+				Image:     image,
+				Storage:   storage,
+				Revision:  revision,
+				ModelPath: modelPath,
+				EnvVars:   envVars,
+				ArgsList:  argsList,
+				DryRun:    dryRun,
+				Replicas:  replicas,
 			}
 			rbg, metadata, err := generateRBG(name, modelID, namespace, params, userCfg, cf)
 			if err != nil {
@@ -704,10 +723,12 @@ Examples:
 	cmd.Flags().Int32Var(&replicas, "replicas", 1, "Number of replicas")
 	cmd.Flags().StringVar(&mode, "mode", "", "Run mode (default: first mode in model config)")
 	cmd.Flags().StringVar(&engine, "engine", "", "Inference engine override: vllm, sglang (default: from mode config)")
+	cmd.Flags().StringVar(&image, "image", "", "Container image override (default: from mode config)")
 	cmd.Flags().StringArrayVar(&envVars, "env", nil, "Environment variables (KEY=VALUE)")
 	cmd.Flags().StringArrayVar(&argsList, "arg", nil, "Additional arguments for the engine")
 	cmd.Flags().StringVar(&storage, "storage", "", "Storage to use (overrides default)")
 	cmd.Flags().StringVar(&revision, "revision", "main", "Model revision")
+	cmd.Flags().StringVar(&modelPath, "model-path", "", "Absolute model path inside the container. Storage is mounted at /models, so the default path is /models/<model>/<revision>")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print the generated template without creating the workload")
 	cmd.Flags().BoolVar(&waitReady, "wait", true, "Wait for the RoleBasedGroup to be ready before returning")
 	cmd.Flags().DurationVar(&waitTimeout, "wait-timeout", 20*time.Minute, "Timeout for waiting for RoleBasedGroup to be ready")

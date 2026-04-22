@@ -165,11 +165,6 @@ func TestOSSStorage_Init_StorageSizeFixed(t *testing.T) {
 	assert.Equal(t, "1Ti", p.storageSize, "storageSize should always be 1Ti")
 }
 
-func TestOSSStorage_MountPath(t *testing.T) {
-	p := &OSSStorage{}
-	assert.Equal(t, "/models", p.MountPath())
-}
-
 func TestOSSStorage_Exists(t *testing.T) {
 	p := &OSSStorage{}
 	exists, err := p.Exists("any-model")
@@ -221,6 +216,7 @@ func TestOSSStorage_MountStorage_AddsVolumeAndMount(t *testing.T) {
 		Client:      fakeClient,
 		StorageName: "test-oss",
 		Namespace:   "default",
+		MountPath:   DefaultMountPath,
 	})
 	require.NoError(t, err)
 
@@ -264,7 +260,7 @@ func TestOSSStorage_MountStorage_MultipleContainers(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, p.MountStorage(tpl, MountOptions{Client: fakeClient, StorageName: "test-oss", Namespace: "default"}))
+	require.NoError(t, p.MountStorage(tpl, MountOptions{Client: fakeClient, StorageName: "test-oss", Namespace: "default", MountPath: DefaultMountPath}))
 	for _, c := range tpl.Spec.Containers {
 		require.Len(t, c.VolumeMounts, 1)
 		assert.Equal(t, "model-storage", c.VolumeMounts[0].Name)
@@ -301,7 +297,7 @@ func TestOSSStorage_MountStorage_InitContainers(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, p.MountStorage(tpl, MountOptions{Client: fakeClient, StorageName: "test-oss", Namespace: "default"}))
+	require.NoError(t, p.MountStorage(tpl, MountOptions{Client: fakeClient, StorageName: "test-oss", Namespace: "default", MountPath: DefaultMountPath}))
 	require.Len(t, tpl.Spec.InitContainers[0].VolumeMounts, 1)
 	assert.Equal(t, "/models", tpl.Spec.InitContainers[0].VolumeMounts[0].MountPath)
 }
@@ -333,6 +329,7 @@ func TestOSSStorage_MountStorage_CreatesResources(t *testing.T) {
 		Client:      fakeClient,
 		StorageName: "test-oss",
 		Namespace:   "default",
+		MountPath:   DefaultMountPath,
 	})
 	require.NoError(t, err)
 
@@ -387,6 +384,7 @@ func TestOSSStorage_MountStorage_VerifiesExistingSecret(t *testing.T) {
 		Client:      fakeClient,
 		StorageName: "test-oss",
 		Namespace:   "default",
+		MountPath:   DefaultMountPath,
 	})
 	require.NoError(t, err)
 }
@@ -407,6 +405,7 @@ func TestOSSStorage_MountStorage_FailsOnMissingSecret(t *testing.T) {
 		Client:      fakeClient,
 		StorageName: "test-oss",
 		Namespace:   "default",
+		MountPath:   DefaultMountPath,
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
@@ -478,6 +477,7 @@ func TestOSSStorage_MountStorage_VerifiesExistingPV(t *testing.T) {
 		Client:      fakeClient,
 		StorageName: "test-oss",
 		Namespace:   "default",
+		MountPath:   DefaultMountPath,
 	})
 	require.NoError(t, err)
 }
@@ -558,6 +558,7 @@ func TestOSSStorage_MountStorage_VerifiesExistingPVC(t *testing.T) {
 		Client:      fakeClient,
 		StorageName: "test-oss",
 		Namespace:   "default",
+		MountPath:   DefaultMountPath,
 	})
 	require.NoError(t, err)
 }
@@ -635,6 +636,7 @@ func TestOSSStorage_MountStorage_FailsOnDifferentPVC(t *testing.T) {
 		Client:      fakeClient,
 		StorageName: "test-oss",
 		Namespace:   "default",
+		MountPath:   DefaultMountPath,
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "different PV")
@@ -711,6 +713,7 @@ func TestOSSStorage_MountStorage_ClientError(t *testing.T) {
 		Client:      mockClient,
 		StorageName: "test-oss",
 		Namespace:   "default",
+		MountPath:   DefaultMountPath,
 	})
 	require.Error(t, err)
 }

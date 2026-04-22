@@ -168,11 +168,22 @@ func TestExtractRBGStatus_NoConditions(t *testing.T) {
 	assert.Equal(t, "Pending", extractRBGStatus(rbg))
 }
 
-func TestExtractRBGStatus_WithCondition(t *testing.T) {
+func TestExtractRBGStatus_WithFalseCondition(t *testing.T) {
 	rbg := &workloadsv1alpha2.RoleBasedGroup{
 		Status: workloadsv1alpha2.RoleBasedGroupStatus{
 			Conditions: []metav1.Condition{
-				{Type: "Ready"},
+				{Type: "Ready", Status: "False"},
+			},
+		},
+	}
+	assert.Equal(t, "NotReady", extractRBGStatus(rbg))
+}
+
+func TestExtractRBGStatus_WithTrueCondition(t *testing.T) {
+	rbg := &workloadsv1alpha2.RoleBasedGroup{
+		Status: workloadsv1alpha2.RoleBasedGroupStatus{
+			Conditions: []metav1.Condition{
+				{Type: "Ready", Status: "True"},
 			},
 		},
 	}

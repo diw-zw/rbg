@@ -42,7 +42,7 @@ Once the service is running, you can chat with it:
 
 ```bash
 # Interactive mode
-kubectl rbg llm svc chat my-qwen
+kubectl rbg llm svc chat my-qwen -i
 
 # Or send a single prompt
 kubectl rbg llm svc chat my-qwen --prompt "Hello, how are you?"
@@ -87,12 +87,18 @@ kubectl rbg llm svc run NAME MODEL_ID [flags]
 | `--replicas` | | Number of replicas | 1 |
 | `--mode` | | Run mode (from model config) | (first mode in model config) |
 | `--engine` | | Inference engine override (`vllm`, `sglang`) | (from mode config) |
+| `--image` | | Container image override | (from mode config) |
 | `--env` | | Environment variables (`KEY=VALUE`), can be specified multiple times | |
 | `--arg` | | Additional arguments for the engine, can be specified multiple times | |
 | `--storage` | | Storage to use (overrides default) | (current storage) |
 | `--revision` | | Model revision | `main` |
+| `--model-path` | | Absolute model path inside the container. Storage is mounted at `/models`, so the default path is `/models/<model>/<revision>` | |
 | `--dry-run` | | Print the generated template without creating the workload | `false` |
-| `--namespace` | `-n` | Kubernetes namespace | default |
+| `--wait` | | Wait for the RoleBasedGroup to be ready before returning | `true` |
+| `--wait-timeout` | | Timeout for waiting for RoleBasedGroup to be ready | `20m` |
+| `--test-api` | | Test the `/v1/chat/completions` API endpoint after the service is ready | `true` |
+| `--test-api-timeout` | | Timeout for testing the API endpoint | `5m` |
+| `--local-port` | | Local port for port-forward when testing API | `32432` |
 
 **Examples:**
 
@@ -106,6 +112,9 @@ kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --mode throughput
 # Override engine
 kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --mode custom --engine sglang
 
+# Use a custom image (e.g., mirror registry)
+kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --image registry.cn-hangzhou.aliyuncs.com/my/vllm:latest
+
 # Run with multiple replicas
 kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --replicas 3
 
@@ -117,6 +126,12 @@ kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --env CUDA_VISIBLE_DEVICES=0,1
 
 # Pass additional engine arguments
 kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --arg --max-model-len=4096 --arg --dtype=half
+
+# Specify a custom model path (when models are placed manually in storage)
+kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --model-path /models/my-custom-model
+
+# Skip API readiness test
+kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --test-api=false
 ```
 
 ### llm svc list
@@ -131,7 +146,6 @@ kubectl rbg llm svc list [flags]
 
 | Flag | Short | Description | Default |
 |------|-------|-------------|---------|
-| `--namespace` | `-n` | Kubernetes namespace | default |
 | `--all-namespaces` | `-A` | List across all namespaces | false |
 
 **Example:**
@@ -149,14 +163,8 @@ kubectl rbg llm svc list -A
 Delete an LLM inference service.
 
 ```bash
-kubectl rbg llm svc delete NAME [flags]
+kubectl rbg llm svc delete NAME... [flags]
 ```
-
-**Flags:**
-
-| Flag | Short | Description | Default |
-|------|-------|-------------|---------|
-| `--namespace` | `-n` | Kubernetes namespace | default |
 
 **Example:**
 
@@ -166,7 +174,7 @@ kubectl rbg llm svc delete my-qwen
 
 ### llm model list
 
-List available models from configured sources.
+List downloaded models in storage.
 
 ```bash
 kubectl rbg llm model list [flags]
@@ -176,16 +184,16 @@ kubectl rbg llm model list [flags]
 
 | Flag | Short | Description | Default |
 |------|-------|-------------|---------|
-| `--source` | | Filter by source name | |
+| `--storage` | | Storage to use (overrides default) | (current storage) |
 
 **Example:**
 
 ```bash
-# List all available models
+# List models in the default storage
 kubectl rbg llm model list
 
-# List models from a specific source
-kubectl rbg llm model list --source huggingface
+# List models in a specific storage
+kubectl rbg llm model list --storage my-pvc
 ```
 
 ### llm model pull
@@ -193,7 +201,7 @@ kubectl rbg llm model list --source huggingface
 Pull a model from the configured source to storage.
 
 ```bash
-kubectl rbg llm model pull MODEL_NAME [flags]
+kubectl rbg llm model pull MODEL_ID [flags]
 ```
 
 **Flags:**
@@ -202,11 +210,20 @@ kubectl rbg llm model pull MODEL_NAME [flags]
 |------|-------|-------------|---------|
 | `--source` | | Source configuration name | (current source) |
 | `--storage` | | Storage configuration name | (current storage) |
+| `--revision` | | Model revision to download | `main` |
+| `--wait` | | Wait for the pull job to complete and stream logs | `true` |
 
 **Example:**
 
 ```bash
+# Pull a model with default settings
 kubectl rbg llm model pull Qwen/Qwen2.5-7B
+
+# Pull a specific revision
+kubectl rbg llm model pull Qwen/Qwen2.5-7B --revision v1.0
+
+# Pull without waiting for completion
+kubectl rbg llm model pull Qwen/Qwen2.5-7B --wait=false
 ```
 
 ### llm svc chat
@@ -221,25 +238,25 @@ kubectl rbg llm svc chat NAME [flags]
 
 | Flag | Short | Description | Default |
 |------|-------|-------------|---------|
-| `--prompt` | `-p` | Single prompt (non-interactive) | |
-| `--interactive` | `-i` | Start interactive chat session (REPL) | false |
-| `--local-port` | | Local port for the tunnel | (random) |
+| `--prompt` | `-p` | Single prompt (non-interactive); combined with `-i` to seed the first turn | |
+| `--interactive` | `-i` | Start an interactive chat session (REPL) | false |
+| `--local-port` | | Local port for the tunnel | 0 (random) |
 | `--system` | | System prompt prepended to conversation | |
 | `--no-stream` | | Disable streaming | false |
-| `--request-timeout` | | HTTP request timeout | 5m |
+| `--request-timeout` | | HTTP request timeout for model inference | 5m |
 | `--port-forward-timeout` | | Port-forward tunnel timeout | 30s |
 
 **Examples:**
 
 ```bash
 # Interactive chat session
-kubectl rbg llm svc chat my-qwen
+kubectl rbg llm svc chat my-qwen -i
 
 # Single prompt (non-interactive)
 kubectl rbg llm svc chat my-qwen --prompt "What is the capital of France?"
 
-# With system prompt
-kubectl rbg llm svc chat my-qwen --system "You are a helpful assistant."
+# With system prompt (interactive)
+kubectl rbg llm svc chat my-qwen -i --system "You are a helpful assistant."
 ```
 
 ### llm generate
@@ -257,17 +274,17 @@ kubectl rbg llm generate [flags]
 | `--model` | Model name |
 | `--system` | GPU system type (h100_sxm, a100_sxm, b200_sxm, gb200_sxm, l40s, h200_sxm) |
 | `--total-gpus` | Total number of GPUs for deployment |
+| `--isl` | Input sequence length |
+| `--osl` | Output sequence length |
 
 **Optional Flags:**
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--isl` | Input sequence length | 4000 |
-| `--osl` | Output sequence length | 1000 |
+| `--configurator-tool` | Configurator tool to use | `aiconfigurator` |
 | `--ttft` | Time to first token (ms) | -1 |
 | `--tpot` | Time per output token (ms) | -1 |
 | `--request-latency` | End-to-end request latency target (ms) | -1 |
-| `--hf-id` | HuggingFace model ID | |
 | `--decode-system` | GPU system for decode workers | (same as --system) |
 | `--backend` | Inference backend (sglang, vllm, trtllm) | sglang |
 | `--backend-version` | Backend version | |
@@ -321,6 +338,7 @@ kubectl rbg llm benchmark run RBG_NAME [flags]
 | `--num-concurrency` | | Concurrency levels, can be specified multiple times or comma-separated | |
 | `--api-backend` | | API backend type (overrides auto-discovered value) | |
 | `--api-base` | | Base URL for the model serving API (overrides auto-discovered value) | |
+| `--api-port` | | Port for the model serving API (used when auto-generating api-base) | `8000` |
 | `--api-key` | | API key used to call the model serving API | `rbg` |
 | `--api-model-name` | | Model name used by the backend (overrides auto-discovered value) | |
 | `--model-tokenizer` | | Tokenizer to use (HuggingFace model name or PVC path) | (required) |
@@ -362,18 +380,24 @@ kubectl rbg llm benchmark run my-qwen \
 
 #### benchmark get
 
-Get benchmark results.
+Get benchmark configuration for a benchmark job.
 
 ```bash
-kubectl rbg llm benchmark get JOB_NAME [flags]
+kubectl rbg llm benchmark get RBG_NAME --job JOB_NAME [flags]
 ```
+
+**Flags:**
+
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--job` | | Name of the benchmark job to inspect (required) | |
 
 #### benchmark list
 
-List benchmark jobs.
+List benchmark jobs for a RoleBasedGroup.
 
 ```bash
-kubectl rbg llm benchmark list [RBG_NAME] [flags]
+kubectl rbg llm benchmark list RBG_NAME
 ```
 
 #### benchmark delete
@@ -381,24 +405,51 @@ kubectl rbg llm benchmark list [RBG_NAME] [flags]
 Delete a benchmark job.
 
 ```bash
-kubectl rbg llm benchmark delete JOB_NAME [flags]
+kubectl rbg llm benchmark delete RBG_NAME --job JOB_NAME [flags]
 ```
+
+**Flags:**
+
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--job` | | Name of the benchmark job to delete (required) | |
 
 #### benchmark logs
 
 View benchmark job logs.
 
 ```bash
-kubectl rbg llm benchmark logs JOB_NAME [flags]
+kubectl rbg llm benchmark logs RBG_NAME [flags]
 ```
+
+**Flags:**
+
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--job` | | Name of the benchmark job to view logs for (required) | |
+| `--follow` | `-f` | Follow log output in real time | `true` |
 
 #### benchmark dashboard
 
-Open benchmark dashboard.
+Start a web dashboard to browse benchmark results.
 
 ```bash
 kubectl rbg llm benchmark dashboard [flags]
 ```
+
+**Required Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--experiment-base-dir` | PVC path containing experiment results (e.g. `pvc://benchmark-output/rbg-benchmark`) |
+
+**Optional Flags:**
+
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--port` | | Local port for port-forward | `18888` |
+| `--open-browser` | | Automatically open browser after dashboard is ready | `true` |
+| `--image` | | Container image for the benchmark dashboard | `rolebasedgroup/rbgs-benchmark-dashboard:v0.6.0` |
 
 ### llm config
 
@@ -444,11 +495,11 @@ kubectl rbg llm config add-storage NAME [flags]
 
 ```bash
 # Add PVC storage
-kubectl rbg llm config add-storage my-pvc --type pvc --config claimName=model-pvc
+kubectl rbg llm config add-storage my-pvc --type pvc --config pvcName=model-pvc
 
 # Add OSS storage
 kubectl rbg llm config add-storage my-oss --type oss \
-  --config endpoint=oss-cn-hangzhou.aliyuncs.com --config bucket=my-bucket
+  --config url=oss-cn-hangzhou.aliyuncs.com --config bucket=my-bucket
 
 # Interactive mode
 kubectl rbg llm config add-storage my-pvc -i
@@ -593,7 +644,7 @@ storages:
   - name: my-pvc
     type: pvc
     config:
-      claimName: model-pvc
+      pvcName: model-pvc
 sources:
   - name: huggingface
     type: huggingface
@@ -668,7 +719,7 @@ kubectl rbg llm svc chat my-model --port-forward-timeout 60s
 Ensure the model is pulled to storage:
 
 ```bash
-kubectl rbg llm model pull MODEL_NAME
+kubectl rbg llm model pull MODEL_ID
 ```
 
 ### GPU allocation issues

@@ -127,8 +127,8 @@ Examples:
 			}
 
 			// Get mount path and construct model path
-			mountPath := storagePlugin.MountPath()
-			modelPath := filepath.Join(mountPath, shared.SanitizeModelID(modelID), shared.SanitizeModelID(revision))
+			mountPath := storageplugin.DefaultMountPath
+			modelPath := filepath.ToSlash(filepath.Join(mountPath, shared.SanitizeModelID(modelID), shared.SanitizeModelID(revision)))
 
 			// Get namespace
 			ns := util.GetNamespace(cf)
@@ -151,6 +151,7 @@ Examples:
 				Client:      ctrlClient,
 				StorageName: storageName,
 				Namespace:   ns,
+				MountPath:   mountPath,
 			}); err != nil {
 				return fmt.Errorf("failed to mount storage: %w", err)
 			}

@@ -94,7 +94,7 @@ Examples:
 			}
 
 			// Create a job to scan storage and list models
-			job := buildListModelsJob(storagePlugin.MountPath())
+			job := buildListModelsJob(storageplugin.DefaultMountPath)
 
 			// Mount storage (provisions resources for OSS and adds volumes/mounts)
 			ctrlClient, err := util.GetControllerRuntimeClient(cf)
@@ -106,6 +106,7 @@ Examples:
 				Client:      ctrlClient,
 				StorageName: storageName,
 				Namespace:   ns,
+				MountPath:   storageplugin.DefaultMountPath,
 			}); err != nil {
 				return fmt.Errorf("failed to mount storage: %w", err)
 			}

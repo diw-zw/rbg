@@ -346,7 +346,7 @@ func (o *OSSStorage) MountStorage(podTemplate *corev1.PodTemplateSpec, opts Moun
 	}
 
 	pvcName := opts.StorageName
-	mountPath := o.MountPath()
+	mountPath := opts.MountPath
 
 	// Add volume
 	volume := corev1.Volume{
@@ -381,11 +381,6 @@ func (o *OSSStorage) MountStorage(podTemplate *corev1.PodTemplateSpec, opts Moun
 	}
 
 	return nil
-}
-
-// MountPath returns the base mount path for the storage
-func (o *OSSStorage) MountPath() string {
-	return "/models"
 }
 
 // PreAdd creates a Kubernetes Secret for OSS credentials and returns a modified config
