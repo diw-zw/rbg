@@ -33,7 +33,11 @@ kubectl rbg llm model pull Qwen/Qwen3.5-0.8B
 Deploy a model to your Kubernetes cluster:
 
 ```bash
+# Deploy a model with a pre-built model config
 kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B
+
+# Or deploy a custom model without a pre-built model config
+kubectl rbg llm svc run my-model org/new-model --engine vllm --resource nvidia.com/gpu=1
 ```
 
 ### 4. Chat with the Model
@@ -86,8 +90,11 @@ kubectl rbg llm svc run NAME MODEL_ID [flags]
 |------|-------|-------------|---------|
 | `--replicas` | | Number of replicas | 1 |
 | `--mode` | | Run mode (from model config) | (first mode in model config) |
-| `--engine` | | Inference engine override (`vllm`, `sglang`) | (from mode config) |
+| `--engine` | | Inference engine override (`vllm`, `sglang`). Required when no model config exists for MODEL_ID. | (from mode config) |
 | `--image` | | Container image override | (from mode config) |
+| `--resource` | | Resource requirements (`key=value`, e.g. `nvidia.com/gpu=1`), can be specified multiple times. Flag values override config on conflict. | |
+| `--distributed-size` | | Multi-node deployment size (<=1 means standalone) | 0 |
+| `--shm-size` | | Shared memory size (e.g. `8Gi`, `16Gi`) | |
 | `--env` | | Environment variables (`KEY=VALUE`), can be specified multiple times | |
 | `--arg` | | Additional arguments for the engine, can be specified multiple times | |
 | `--storage` | | Storage to use (overrides default) | (current storage) |
@@ -117,6 +124,12 @@ kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --image registry.cn-hangzhou.a
 
 # Run with multiple replicas
 kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --replicas 3
+
+# Deploy a custom model without a pre-built model config
+kubectl rbg llm svc run my-model org/new-model --engine vllm --resource nvidia.com/gpu=1
+
+# Deploy with custom resources, distributed size, and shared memory
+kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --resource nvidia.com/gpu=2 --resource memory=16Gi --distributed-size 4 --shm-size 16Gi
 
 # Dry run to preview the generated configuration
 kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --dry-run
@@ -699,6 +712,9 @@ kubectl rbg llm svc delete my-qwen
 kubectl rbg llm svc run qwen-small Qwen/Qwen3.5-0.8B --replicas 1
 kubectl rbg llm svc run qwen-large Qwen/Qwen3-32B --mode throughput --replicas 2
 kubectl rbg llm svc run llama-model meta-llama/Llama-3-8B --engine sglang
+
+# Deploy a custom model with no pre-built model config
+kubectl rbg llm svc run my-custom org/my-model --engine vllm --resource nvidia.com/gpu=4 --shm-size 32Gi
 
 # List all services
 kubectl rbg llm svc list

@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 
 	llmmeta "sigs.k8s.io/rbgs/cmd/cli/cmd/llm/svc/metadata"
@@ -259,7 +260,7 @@ func TestGenerateRBG_UnknownModel(t *testing.T) {
 		DryRun:   true,
 	}, nil, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no configuration found for model")
+	assert.Contains(t, err.Error(), "no model config found for")
 }
 
 func TestGenerateRBG_UnknownEngine_Errors(t *testing.T) {
@@ -307,4 +308,165 @@ func TestGenerateRBG_FallbackModelPath(t *testing.T) {
 		}
 	}
 	assert.True(t, strings.HasPrefix(modelPathArg, "/model/"), "expected fallback model path, got: %s", modelPathArg)
+}
+
+// --- parseResources ---
+
+func TestParseResources_Valid(t *testing.T) {
+	res, err := parseResources([]string{"nvidia.com/gpu=1", "memory=16Gi", "cpu=4"})
+	require.NoError(t, err)
+	assert.Equal(t, 3, len(res))
+	assert.True(t, res["nvidia.com/gpu"].Equal(resource.MustParse("1")))
+	assert.True(t, res["memory"].Equal(resource.MustParse("16Gi")))
+	assert.True(t, res["cpu"].Equal(resource.MustParse("4")))
+}
+
+func TestParseResources_InvalidFormat(t *testing.T) {
+	_, err := parseResources([]string{"nvidia.com/gpu"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid resource format")
+}
+
+func TestParseResources_InvalidQuantity(t *testing.T) {
+	_, err := parseResources([]string{"memory=notaquantity"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid resource quantity")
+}
+
+func TestParseResources_Empty(t *testing.T) {
+	res, err := parseResources(nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, len(res))
+}
+
+// --- flag-only deployment (no model config) ---
+
+func TestGenerateRBG_FlagOnly_WithEngine(t *testing.T) {
+	// Unknown model + --engine specified should succeed
+	rbg, metadata, err := generateRBG("my-custom", "custom/new-model", "default", RunParams{
+		Engine:   "vllm",
+		Revision: "main",
+		Replicas: 1,
+		DryRun:   true,
+	}, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "my-custom", rbg.Name)
+	assert.Equal(t, "vllm", metadata.Engine)
+	assert.Equal(t, "custom", metadata.Mode)
+	assert.Equal(t, "custom/new-model", metadata.ModelID)
+}
+
+func TestGenerateRBG_FlagOnly_WithImageOverride(t *testing.T) {
+	rbg, _, err := generateRBG("my-custom", "custom/new-model", "default", RunParams{
+		Engine:   "vllm",
+		Image:    "my-registry/vllm:custom",
+		Revision: "main",
+		Replicas: 1,
+		DryRun:   true,
+	}, nil, nil)
+	require.NoError(t, err)
+
+	podTemplate := getPodTemplateFromPattern(&rbg.Spec.Roles[0].Pattern)
+	assert.Equal(t, "my-registry/vllm:custom", podTemplate.Spec.Containers[0].Image)
+}
+
+func TestGenerateRBG_FlagOnly_WithResources(t *testing.T) {
+	rbg, _, err := generateRBG("my-custom", "custom/new-model", "default", RunParams{
+		Engine:    "vllm",
+		Resources: []string{"nvidia.com/gpu=2", "memory=16Gi"},
+		Revision:  "main",
+		Replicas:  1,
+		DryRun:    true,
+	}, nil, nil)
+	require.NoError(t, err)
+
+	podTemplate := getPodTemplateFromPattern(&rbg.Spec.Roles[0].Pattern)
+	container := podTemplate.Spec.Containers[0]
+	assert.True(t, container.Resources.Limits["nvidia.com/gpu"].Equal(resource.MustParse("2")))
+	assert.True(t, container.Resources.Limits["memory"].Equal(resource.MustParse("16Gi")))
+	assert.True(t, container.Resources.Requests["nvidia.com/gpu"].Equal(resource.MustParse("2")))
+}
+
+func TestGenerateRBG_FlagOnly_NoEngine_Errors(t *testing.T) {
+	// Unknown model without --engine should fail
+	_, _, err := generateRBG("my-custom", "custom/new-model", "default", RunParams{
+		Revision: "main",
+		Replicas: 1,
+		DryRun:   true,
+	}, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--engine not specified")
+}
+
+// --- flag override on existing model config ---
+
+func TestGenerateRBG_ImageOverride_ExistingModel(t *testing.T) {
+	rbg, _, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
+		Image:    "custom-image:v2",
+		Revision: "main",
+		Replicas: 1,
+		DryRun:   true,
+	}, nil, nil)
+	require.NoError(t, err)
+
+	podTemplate := getPodTemplateFromPattern(&rbg.Spec.Roles[0].Pattern)
+	assert.Equal(t, "custom-image:v2", podTemplate.Spec.Containers[0].Image)
+}
+
+func TestGenerateRBG_ResourceOverride_ExistingModel(t *testing.T) {
+	rbg, _, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
+		Resources: []string{"nvidia.com/gpu=4"},
+		Revision:  "main",
+		Replicas:  1,
+		DryRun:    true,
+	}, nil, nil)
+	require.NoError(t, err)
+
+	podTemplate := getPodTemplateFromPattern(&rbg.Spec.Roles[0].Pattern)
+	container := podTemplate.Spec.Containers[0]
+	assert.True(t, container.Resources.Limits["nvidia.com/gpu"].Equal(resource.MustParse("4")))
+}
+
+func TestGenerateRBG_ShmSizeOverride(t *testing.T) {
+	rbg, _, err := generateRBG("my-svc", "Qwen/Qwen3.5-0.8B", "default", RunParams{
+		ShmSize:  "32Gi",
+		Revision: "main",
+		Replicas: 1,
+		DryRun:   true,
+	}, nil, nil)
+	require.NoError(t, err)
+
+	podTemplate := getPodTemplateFromPattern(&rbg.Spec.Roles[0].Pattern)
+	// ShmSize should result in an emptyDir volume with sizeLimit
+	foundShm := false
+	for _, v := range podTemplate.Spec.Volumes {
+		if v.Name == "shm" && v.EmptyDir != nil {
+			foundShm = true
+			expected := resource.MustParse("32Gi")
+			assert.True(t, v.EmptyDir.SizeLimit.Equal(expected), "expected sizeLimit=32Gi")
+		}
+	}
+	assert.True(t, foundShm, "expected shm volume with sizeLimit=32Gi")
+}
+
+// --- newRunCmd: new flags exist ---
+
+func TestNewRunCmd_NewFlagDefaults(t *testing.T) {
+	cf := genericclioptions.NewConfigFlags(true)
+	cmd := newRunCmd(cf)
+
+	imageFlag := cmd.Flags().Lookup("image")
+	require.NotNil(t, imageFlag)
+	assert.Equal(t, "", imageFlag.DefValue)
+
+	resourceFlag := cmd.Flags().Lookup("resource")
+	require.NotNil(t, resourceFlag)
+
+	distFlag := cmd.Flags().Lookup("distributed-size")
+	require.NotNil(t, distFlag)
+	assert.Equal(t, "0", distFlag.DefValue)
+
+	shmFlag := cmd.Flags().Lookup("shm-size")
+	require.NotNil(t, shmFlag)
+	assert.Equal(t, "", shmFlag.DefValue)
 }
