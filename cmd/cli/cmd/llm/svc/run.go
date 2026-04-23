@@ -137,9 +137,6 @@ func resolveModeConfig(modelID string, p RunParams, userCfg *cliconfig.Config) (
 	}
 
 	engineType := modeCfg.Engine
-	if p.Engine != "" {
-		engineType = p.Engine
-	}
 	engineCfg, err := resolveEngine(engineType, userCfg)
 	if err != nil {
 		return nil, err
@@ -224,6 +221,9 @@ func parseResources(resourceFlags []string) (corev1.ResourceList, error) {
 // For Resources: flag values are merged by key (flag wins on conflict).
 // For Env: flag values are appended. For Args: flag values are appended.
 func applyFlagOverrides(modeCfg *runpkg.ModeConfig, p RunParams) error {
+	if p.Engine != "" {
+		modeCfg.Engine = p.Engine
+	}
 	if p.Image != "" {
 		modeCfg.Image = p.Image
 	}
@@ -253,7 +253,17 @@ func applyFlagOverrides(modeCfg *runpkg.ModeConfig, p RunParams) error {
 		if len(parts) != 2 {
 			return fmt.Errorf("invalid environment variable format: %q, expected KEY=VALUE", ev)
 		}
-		modeCfg.Env = append(modeCfg.Env, corev1.EnvVar{Name: parts[0], Value: parts[1]})
+		found := false
+		for i, existing := range modeCfg.Env {
+			if existing.Name == parts[0] {
+				modeCfg.Env[i].Value = parts[1]
+				found = true
+				break
+			}
+		}
+		if !found {
+			modeCfg.Env = append(modeCfg.Env, corev1.EnvVar{Name: parts[0], Value: parts[1]})
+		}
 	}
 	modeCfg.Args = append(modeCfg.Args, p.ArgsList...)
 	return nil
