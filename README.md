@@ -12,6 +12,12 @@ English | [简体中文](./README-zh_CN.md)
 
 ---
 
+## 🏗️ Architecture
+
+![RBG Architecture](doc/rbg-structure.png)
+
+---
+
 ## 📰 Latest News
 
 | Date | Release | Highlights |
@@ -45,6 +51,8 @@ Traditional Kubernetes primitives (StatefulSets / Deployments) struggle with LLM
 |:--------|:------------|
 | **Role** | Basic scheduling and rollout unit. Each role (prefill, decode) has its own spec, lifecycle and policies. |
 | **RoleBasedGroup** | A group of roles forming one logical service (e.g., one LLM inference deployment). |
+| **RoleInstance** | A collection of Pods with tightly bound lifecycle. Supports in-place updates and controls upgrades/status for the Pod group. |
+| **CoordinatedPolicy** | A separate CRD for coordinating operations across roles. Controls `maxSkew` and `progression` during rolling updates and scaling. |
 
 ---
 
@@ -57,12 +65,6 @@ Traditional Kubernetes primitives (StatefulSets / Deployments) struggle with LLM
 | **Orchestration** | Role dependencies, precise startup sequences, topology self-aware service discovery |
 | **Performance** | Hardware affinity scheduling: GPU-NVLink → PCIe → RDMA → VPC |
 | **Extensible** | Declarative APIs and plugin mechanisms for future architectures |
-
----
-
-## 🏗️ Architecture
-
-![RBG Architecture](doc/rbg-structure.png)
 
 ---
 
@@ -155,157 +157,86 @@ spec:
 
 ---
 
+## 🖥️ CLI Tool
+
+kubectl-rbg is a CLI tool for managing RBG resources and LLM deployments.
+
+### Installation
+
+```shell
+# Build from source
+make build-cli
+chmod +x bin/kubectl-rbg
+sudo mv bin/kubectl-rbg /usr/local/bin/
+```
+
+### LLM Quick Start
+
+```shell
+# Initialize configuration
+kubectl rbg llm config init
+
+# Pull a model
+kubectl rbg llm model pull Qwen/Qwen3.5-0.8B
+
+# Deploy as inference service
+kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B
+
+# Chat with the service
+kubectl rbg llm svc chat my-qwen
+```
+
+For detailed CLI documentation, see [kubectl-rbg](doc/cli/kubectl-rbg.md).
+
+---
+
 ## 🧠 Inference Examples
 
 ### Prefill/Decode Disaggregated
 
-Deploy PD-disaggregated LLM inference with SGLang:
+SGLang PD-disaggregated examples in `examples/inference/`:
 
-```yaml
-apiVersion: workloads.x-k8s.io/v1alpha2
-kind: RoleBasedGroup
-metadata:
-  name: sglang-pd-inference
-spec:
-  roles:
-    # Router: SGLang Model Gateway
-    - name: router
-      replicas: 1
-      standalonePattern:
-        template:
-          spec:
-            containers:
-              - name: router
-                image: lmsysorg/sglang-router:v0.2.4
-                command:
-                  - python3
-                  - -m
-                  - sglang_router.launch_router
-                  - --pd-disaggregation
-                  - --prefill
-                  - "http://sglang-pd-inference-prefill-0.s-sglang-pd-inference-prefill:8000"
-                  - --decode
-                  - "http://sglang-pd-inference-decode-0.s-sglang-pd-inference-decode:8000"
+| Example | Pattern | Description |
+|:--------|:--------|:------------|
+| [pd-disagg-standalone.yaml](examples/inference/pd-disagg-standalone.yaml) | standalonePattern | Single pod per role, suitable for single-GPU instances |
+| [pd-disagg-leader-worker.yaml](examples/inference/pd-disagg-leader-worker.yaml) | leaderWorkerPattern | Multi-GPU tensor parallelism for decode role |
 
-    # Prefill: prompt encoding engine
-    - name: prefill
-      replicas: 1
-      rolloutStrategy:
-        type: RollingUpdate
-        rollingUpdate:
-          type: InPlaceIfPossible
-      standalonePattern:
-        template:
-          spec:
-            containers:
-              - name: sglang
-                image: lmsysorg/sglang:v0.5.9
-                command:
-                  - python3
-                  - -m
-                  - sglang.launch_server
-                  - --model-path
-                  - "Qwen/Qwen3-0.6B"
-                  - --disaggregation-mode
-                  - "prefill"
-                resources:
-                  limits:
-                    nvidia.com/gpu: "1"
+### Aggregated Inference
 
-    # Decode: token generation engine
-    - name: decode
-      replicas: 1
-      standalonePattern:
-        template:
-          spec:
-            containers:
-              - name: sglang
-                image: lmsysorg/sglang:v0.5.9
-                command:
-                  - python3
-                  - -m
-                  - sglang.launch_server
-                  - --model-path
-                  - "Qwen/Qwen3-0.6B"
-                  - --disaggregation-mode
-                  - "decode"
-                resources:
-                  limits:
-                    nvidia.com/gpu: "1"
-```
+SGLang aggregated examples:
 
-### NVIDIA Dynamo Runtime
+| Example | Pattern | Description |
+|:--------|:--------|:------------|
+| [agg-standalone.yaml](examples/inference/agg-standalone.yaml) | standalonePattern | Single-GPU aggregated inference |
+| [agg-leader-worker.yaml](examples/inference/agg-leader-worker.yaml) | leaderWorkerPattern | Multi-GPU tensor parallelism |
 
-Deploy with NVIDIA Dynamo SGLang runtime:
+---
 
-```yaml
-apiVersion: workloads.x-k8s.io/v1alpha2
-kind: RoleBasedGroup
-metadata:
-  name: dynamo-pd-inference
-spec:
-  roleTemplates:
-    - name: dynamo-base
-      template:
-        spec:
-          containers:
-            - name: sglang
-              image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.0.1
-              env:
-                - name: DYN_DISCOVERY_BACKEND
-                  value: kubernetes
+## 🔗 Ecosystem Integration
 
-  roles:
-    - name: processor
-      replicas: 1
-      standalonePattern:
-        templateRef:
-          name: dynamo-base
-          patch:
-            spec:
-              containers:
-                - name: sglang
-                  command:
-                    - python3
-                    - -m
-                    - dynamo.frontend
+RBG integrates with ecosystem components for production LLM inference:
 
-    - name: prefill
-      replicas: 1
-      scalingAdapter:
-        enable: true
-      standalonePattern:
-        templateRef:
-          name: dynamo-base
-          patch:
-            spec:
-              containers:
-                - name: sglang
-                  command:
-                    - python3
-                    - -m
-                    - dynamo.sglang
-                  args:
-                    - --disaggregation-mode
-                    - prefill
+### NVIDIA Dynamo
 
-    - name: decode
-      replicas: 1
-      standalonePattern:
-        templateRef:
-          name: dynamo-base
-          patch:
-            spec:
-              containers:
-                - name: sglang
-                  command:
-                    - python3
-                    - -m
-                    - dynamo.sglang
-                  args:
-                    - --disaggregation-mode
-                    - decode
-```
+NVIDIA Dynamo provides K8s-native service discovery for SGLang runtime:
+
+| Example | Description |
+|:--------|:------------|
+| [dynamo/pd-disagg.yaml](examples/inference/ecosystem/dynamo/pd-disagg.yaml) | PD-disaggregated with Dynamo SGLang runtime |
+| [dynamo/pd-disagg-multi-nodes.yaml](examples/inference/ecosystem/dynamo/pd-disagg-multi-nodes.yaml) | Multi-node PD-disaggregated |
+| [dynamo/agg.yaml](examples/inference/ecosystem/dynamo/agg.yaml) | Aggregated inference with Dynamo |
+| [dynamo/agg-multi-nodes.yaml](examples/inference/ecosystem/dynamo/agg-multi-nodes.yaml) | Multi-node aggregated |
+
+### Mooncake KV Cache
+
+Mooncake provides KV cache transfer and reuse for distributed inference:
+
+| Example | Description |
+|:--------|:------------|
+| [mooncake-store/pd-disagg-kvcache-reuse.yaml](examples/inference/ecosystem/mooncake/mooncake-store/pd-disagg-kvcache-reuse-with-mooncake.yaml) | PD-disaggregated with KV cache reuse |
+| [mooncake-store/agg-kvcache-reuse.yaml](examples/inference/ecosystem/mooncake/mooncake-store/agg-kvcache-reuse-with-mooncake.yaml) | Aggregated with KV cache reuse |
+| [mooncake-transfer-engine/sglang-pd-disagg.yaml](examples/inference/ecosystem/mooncake/mooncake-transfer-engine/sgl-pd-disgg-with-mooncake-te.yaml) | SGLang PD-disaggregated with transfer engine |
+| [mooncake-transfer-engine/vllm-pd-disagg.yaml](examples/inference/ecosystem/mooncake/mooncake-transfer-engine/vllm-pd-disgg-with-mooncake-te.yaml) | vLLM PD-disaggregated with transfer engine |
 
 ---
 

@@ -12,6 +12,12 @@
 
 ---
 
+## 🏗️ 架构图
+
+![RBG 架构图](doc/rbg-structure.png)
+
+---
+
 ## 📰 最新动态
 
 | 日期 | 版本 | 亮点 |
@@ -45,6 +51,8 @@
 |:-----|:-----|
 | **角色 (Role)** | 基础调度与发布单元。每个角色（prefill、decode）拥有独立的配置、生命周期和策略。 |
 | **角色组 (RoleBasedGroup)** | 多个角色构成的一个逻辑服务（例如一次 LLM 推理部署）。 |
+| **角色实例 (RoleInstance)** | Pod 集合，生命周期紧密绑定。支持原地更新，控制 Pod 组的升级与状态。 |
+| **协同策略 (CoordinatedPolicy)** | 独立 CRD，用于跨角色协同操作。控制滚动更新与伸缩期间的 `maxSkew` 和 `progression`。 |
 
 ---
 
@@ -57,12 +65,6 @@
 | **编排 (Orchestration)** | 角色依赖、精确启动顺序、拓扑自感知服务发现 |
 | **性能 (Performance)** | 硬件亲和性调度：GPU-NVLink → PCIe → RDMA → VPC |
 | **可扩展 (Extensible)** | 声明式 API 与插件机制，适配未来架构 |
-
----
-
-## 🏗️ 架构图
-
-![RBG 架构图](doc/rbg-structure.png)
 
 ---
 
@@ -155,157 +157,86 @@ spec:
 
 ---
 
+## 🖥️ CLI 工具
+
+kubectl-rbg 是管理 RBG 资源和 LLM 部署的 CLI 工具。
+
+### 安装
+
+```shell
+# 从源码构建
+make build-cli
+chmod +x bin/kubectl-rbg
+sudo mv bin/kubectl-rbg /usr/local/bin/
+```
+
+### LLM 快速开始
+
+```shell
+# 初始化配置
+kubectl rbg llm config init
+
+# 拉取模型
+kubectl rbg llm model pull Qwen/Qwen3.5-0.8B
+
+# 部署推理服务
+kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B
+
+# 与服务对话
+kubectl rbg llm svc chat my-qwen
+```
+
+详细 CLI 文档请参考 [kubectl-rbg](doc/cli/kubectl-rbg.md)。
+
+---
+
 ## 🧠 推理示例
 
 ### Prefill/Decode 解耦部署
 
-使用 SGLang 部署 PD 解耦 LLM 推理：
+`examples/inference/` 目录下的 SGLang PD 解耦示例：
 
-```yaml
-apiVersion: workloads.x-k8s.io/v1alpha2
-kind: RoleBasedGroup
-metadata:
-  name: sglang-pd-inference
-spec:
-  roles:
-    # Router: SGLang Model Gateway
-    - name: router
-      replicas: 1
-      standalonePattern:
-        template:
-          spec:
-            containers:
-              - name: router
-                image: lmsysorg/sglang-router:v0.2.4
-                command:
-                  - python3
-                  - -m
-                  - sglang_router.launch_router
-                  - --pd-disaggregation
-                  - --prefill
-                  - "http://sglang-pd-inference-prefill-0.s-sglang-pd-inference-prefill:8000"
-                  - --decode
-                  - "http://sglang-pd-inference-decode-0.s-sglang-pd-inference-decode:8000"
+| 示例 | 模式 | 说明 |
+|:-----|:-----|:-----|
+| [pd-disagg-standalone.yaml](examples/inference/pd-disagg-standalone.yaml) | standalonePattern | 单 pod 每角色，适用于单 GPU 实例 |
+| [pd-disagg-leader-worker.yaml](examples/inference/pd-disagg-leader-worker.yaml) | leaderWorkerPattern | decode 角色 Multi-GPU 张量并行 |
 
-    # Prefill: prompt 编码引擎
-    - name: prefill
-      replicas: 1
-      rolloutStrategy:
-        type: RollingUpdate
-        rollingUpdate:
-          type: InPlaceIfPossible
-      standalonePattern:
-        template:
-          spec:
-            containers:
-              - name: sglang
-                image: lmsysorg/sglang:v0.5.9
-                command:
-                  - python3
-                  - -m
-                  - sglang.launch_server
-                  - --model-path
-                  - "Qwen/Qwen3-0.6B"
-                  - --disaggregation-mode
-                  - "prefill"
-                resources:
-                  limits:
-                    nvidia.com/gpu: "1"
+### 聚合推理
 
-    # Decode: token 生成引擎
-    - name: decode
-      replicas: 1
-      standalonePattern:
-        template:
-          spec:
-            containers:
-              - name: sglang
-                image: lmsysorg/sglang:v0.5.9
-                command:
-                  - python3
-                  - -m
-                  - sglang.launch_server
-                  - --model-path
-                  - "Qwen/Qwen3-0.6B"
-                  - --disaggregation-mode
-                  - "decode"
-                resources:
-                  limits:
-                    nvidia.com/gpu: "1"
-```
+SGLang 聚合推理示例：
 
-### NVIDIA Dynamo 运行时
+| 示例 | 模式 | 说明 |
+|:-----|:-----|:-----|
+| [agg-standalone.yaml](examples/inference/agg-standalone.yaml) | standalonePattern | 单 GPU 聚合推理 |
+| [agg-leader-worker.yaml](examples/inference/agg-leader-worker.yaml) | leaderWorkerPattern | 多 GPU 张量并行 |
 
-使用 NVIDIA Dynamo SGLang 运行时部署：
+---
 
-```yaml
-apiVersion: workloads.x-k8s.io/v1alpha2
-kind: RoleBasedGroup
-metadata:
-  name: dynamo-pd-inference
-spec:
-  roleTemplates:
-    - name: dynamo-base
-      template:
-        spec:
-          containers:
-            - name: sglang
-              image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.0.1
-              env:
-                - name: DYN_DISCOVERY_BACKEND
-                  value: kubernetes
+## 🔗 生态集成
 
-  roles:
-    - name: processor
-      replicas: 1
-      standalonePattern:
-        templateRef:
-          name: dynamo-base
-          patch:
-            spec:
-              containers:
-                - name: sglang
-                  command:
-                    - python3
-                    - -m
-                    - dynamo.frontend
+RBG 集成生态组件用于生产级 LLM 推理：
 
-    - name: prefill
-      replicas: 1
-      scalingAdapter:
-        enable: true
-      standalonePattern:
-        templateRef:
-          name: dynamo-base
-          patch:
-            spec:
-              containers:
-                - name: sglang
-                  command:
-                    - python3
-                    - -m
-                    - dynamo.sglang
-                  args:
-                    - --disaggregation-mode
-                    - prefill
+### NVIDIA Dynamo
 
-    - name: decode
-      replicas: 1
-      standalonePattern:
-        templateRef:
-          name: dynamo-base
-          patch:
-            spec:
-              containers:
-                - name: sglang
-                  command:
-                    - python3
-                    - -m
-                    - dynamo.sglang
-                  args:
-                    - --disaggregation-mode
-                    - decode
-```
+NVIDIA Dynamo 为 SGLang 运行时提供 K8s 原生服务发现：
+
+| 示例 | 说明 |
+|:-----|:-----|
+| [dynamo/pd-disagg.yaml](examples/inference/ecosystem/dynamo/pd-disagg.yaml) | Dynamo SGLang 运行时 PD 解耦部署 |
+| [dynamo/pd-disagg-multi-nodes.yaml](examples/inference/ecosystem/dynamo/pd-disagg-multi-nodes.yaml) | 多节点 PD 解耦部署 |
+| [dynamo/agg.yaml](examples/inference/ecosystem/dynamo/agg.yaml) | Dynamo 聚合推理 |
+| [dynamo/agg-multi-nodes.yaml](examples/inference/ecosystem/dynamo/agg-multi-nodes.yaml) | 多节点聚合推理 |
+
+### Mooncake KV 缓存
+
+Mooncake 为分布式推理提供 KV 缓存传输与复用：
+
+| 示例 | 说明 |
+|:-----|:-----|
+| [mooncake-store/pd-disagg-kvcache-reuse.yaml](examples/inference/ecosystem/mooncake/mooncake-store/pd-disagg-kvcache-reuse-with-mooncake.yaml) | PD 解耦 KV 缓存复用 |
+| [mooncake-store/agg-kvcache-reuse.yaml](examples/inference/ecosystem/mooncake/mooncake-store/agg-kvcache-reuse-with-mooncake.yaml) | 聚合推理 KV 缓存复用 |
+| [mooncake-transfer-engine/sglang-pd-disagg.yaml](examples/inference/ecosystem/mooncake/mooncake-transfer-engine/sgl-pd-disgg-with-mooncake-te.yaml) | SGLang PD 解耦传输引擎 |
+| [mooncake-transfer-engine/vllm-pd-disagg.yaml](examples/inference/ecosystem/mooncake/mooncake-transfer-engine/vllm-pd-disgg-with-mooncake-te.yaml) | vLLM PD 解耦传输引擎 |
 
 ---
 
