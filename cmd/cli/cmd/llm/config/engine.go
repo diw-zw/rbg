@@ -88,21 +88,46 @@ Example:
 
 func newGetEnginesCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "get-engines",
-		Short: "List customized engine configurations",
-		Long: `List all engines with custom configurations.
+		Use:   "get-engines [ENGINE_TYPE]",
+		Short: "List customized engine configurations or show details of one",
+		Long: `List all engines with custom configurations, or show detailed information for a specific one.
 
-This shows only engines that have been explicitly configured via 'set-engine'.
-Engines not listed here use their default settings.
+Without ENGINE_TYPE: displays a table showing all customized engines.
+With ENGINE_TYPE: displays the detailed configuration for the named engine.
+If the engine has no custom configuration, it indicates that defaults are being used.
 
-Example:
-  kubectl rbg llm config get-engines`,
+Examples:
+  # List all customized engines
+  kubectl rbg llm config get-engines
+
+  # Show details of a specific engine
+  kubectl rbg llm config get-engines sglang`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
 
+			// Show details of a single engine
+			if len(args) == 1 {
+				engineType := args[0]
+				if !engineplugin.IsRegistered(engineType) {
+					return fmt.Errorf("unknown engine type '%s'", engineType)
+				}
+				fmt.Printf("Engine: %s\n", engineType)
+				e, err := cfg.GetEngine(engineType)
+				if err == nil && e != nil {
+					fmt.Println("  Configuration (customized):")
+					printConfigItems(e.Config, engineplugin.GetFields(engineType))
+				} else {
+					fmt.Println("  Configuration: (using defaults)")
+					fmt.Println("  No custom configuration found. Run 'kubectl rbg llm config set-engine' to customize.")
+				}
+				return nil
+			}
+
+			// List all customized engines
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 			_, _ = fmt.Fprintln(w, "TYPE")
 			for _, e := range cfg.Engines {

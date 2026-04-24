@@ -105,23 +105,44 @@ Examples:
 
 func newGetSourcesCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "get-sources",
-		Short: "List all source configurations",
-		Long: `List all configured model sources.
+		Use:   "get-sources [NAME]",
+		Short: "List all source configurations or show details of one",
+		Long: `List all configured model sources, or show detailed information for a specific one.
 
-Displays a table showing:
-  - NAME: The name of the source configuration
-  - TYPE: The source type (e.g., huggingface, modelscope)
-  - CURRENT: Indicates the currently active source with "*"
+Without NAME: displays a table showing all sources.
+With NAME: displays the detailed configuration for the named source.
 
-Example:
-  kubectl rbg llm config get-sources`,
+Examples:
+  # List all sources
+  kubectl rbg llm config get-sources
+
+  # Show details of a specific source
+  kubectl rbg llm config get-sources huggingface`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
 
+			// Show details of a single source
+			if len(args) == 1 {
+				name := args[0]
+				s, err := cfg.GetSource(name)
+				if err != nil {
+					return err
+				}
+				if s.Name == cfg.CurrentSource {
+					fmt.Printf("Source: %s (active)\n", s.Name)
+				} else {
+					fmt.Printf("Source: %s\n", s.Name)
+				}
+				fmt.Printf("  Type: %s\n", s.Type)
+				printConfigItems(s.Config, sourceplugin.GetFields(s.Type))
+				return nil
+			}
+
+			// List all sources
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 			_, _ = fmt.Fprintln(w, "NAME\tTYPE\tCURRENT")
 			for _, s := range cfg.Sources {

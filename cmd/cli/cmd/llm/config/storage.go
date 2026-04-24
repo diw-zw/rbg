@@ -140,23 +140,44 @@ Examples:
 
 func newGetStoragesCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "get-storages",
-		Short: "List all storage configurations",
-		Long: `List all configured storage backends.
+		Use:   "get-storages [NAME]",
+		Short: "List all storage configurations or show details of one",
+		Long: `List all configured storage backends, or show detailed information for a specific one.
 
-Displays a table showing:
-  - NAME: The name of the storage configuration
-  - TYPE: The storage type (e.g., pvc)
-  - CURRENT: Indicates the currently active storage with "*"
+Without NAME: displays a table showing all storages.
+With NAME: displays the detailed configuration for the named storage.
 
-Example:
-  kubectl rbg llm config get-storages`,
+Examples:
+  # List all storages
+  kubectl rbg llm config get-storages
+
+  # Show details of a specific storage
+  kubectl rbg llm config get-storages my-pvc`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
 
+			// Show details of a single storage
+			if len(args) == 1 {
+				name := args[0]
+				s, err := cfg.GetStorage(name)
+				if err != nil {
+					return err
+				}
+				if s.Name == cfg.CurrentStorage {
+					fmt.Printf("Storage: %s (active)\n", s.Name)
+				} else {
+					fmt.Printf("Storage: %s\n", s.Name)
+				}
+				fmt.Printf("  Type: %s\n", s.Type)
+				printConfigItems(s.Config, storageplugin.GetFields(s.Type))
+				return nil
+			}
+
+			// List all storages
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 			_, _ = fmt.Fprintln(w, "NAME\tTYPE\tCURRENT")
 			for _, s := range cfg.Storages {
