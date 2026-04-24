@@ -57,7 +57,7 @@ Example:
 			}
 
 			if !engineplugin.IsRegistered(engineType) {
-				return fmt.Errorf("unknown engine type '%s'", engineType)
+				return fmt.Errorf("unknown engine type '%s'. Supported types: %v", engineType, engineplugin.RegisteredNames())
 			}
 
 			configMap := make(map[string]interface{})
@@ -113,7 +113,7 @@ Examples:
 			if len(args) == 1 {
 				engineType := args[0]
 				if !engineplugin.IsRegistered(engineType) {
-					return fmt.Errorf("unknown engine type '%s'", engineType)
+					return fmt.Errorf("unknown engine type '%s'. Supported types: %v", engineType, engineplugin.RegisteredNames())
 				}
 				fmt.Printf("Engine: %s\n", engineType)
 				e, err := cfg.GetEngine(engineType)
