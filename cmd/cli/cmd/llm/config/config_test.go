@@ -73,8 +73,8 @@ func TestNewConfigCmd_SubcommandProperties(t *testing.T) {
 	}{
 		{"add-storage", "add-storage NAME", "Add a storage configuration"},
 		{"add-source", "add-source NAME", "Add a source configuration"},
-		{"get-storages", "get-storages", "List all storage configurations"},
-		{"get-sources", "get-sources", "List all source configurations"},
+		{"get-storages", "get-storages", "List all storage configurations or show details of one"},
+		{"get-sources", "get-sources", "List all source configurations or show details of one"},
 		{"use-storage", "use-storage NAME", "Set the current storage"},
 		{"use-source", "use-source NAME", "Set the current source"},
 		{"set-storage", "set-storage NAME", "Update a storage configuration"},

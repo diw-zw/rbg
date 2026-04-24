@@ -41,7 +41,7 @@ func TestNewGetEnginesCmd(t *testing.T) {
 	cmd := newGetEnginesCmd()
 
 	assert.NotNil(t, cmd)
-	assert.Equal(t, "get-engines", cmd.Use)
+	assert.Equal(t, "get-engines [ENGINE_TYPE]", cmd.Use)
 	assert.NotEmpty(t, cmd.Short)
 }
 
