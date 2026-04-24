@@ -30,6 +30,7 @@ import (
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -73,16 +74,19 @@ func resolveEngine(engineType string, cfg *cliconfig.Config) (*cliconfig.EngineC
 
 // RunParams holds all flag values supplied to the run command.
 type RunParams struct {
-	Mode      string
-	Engine    string
-	Image     string
-	Storage   string
-	Revision  string
-	ModelPath string
-	EnvVars   []string
-	ArgsList  []string
-	DryRun    bool
-	Replicas  int32
+	Mode            string
+	Engine          string
+	Image           string
+	Storage         string
+	Revision        string
+	ModelPath       string
+	EnvVars         []string
+	ArgsList        []string
+	DryRun          bool
+	Replicas        int32
+	Resources       []string // key=value pairs, e.g. "nvidia.com/gpu=1"
+	DistributedSize int32
+	ShmSize         string
 }
 
 // modeConfigResult holds the result of mode config resolution.
@@ -94,24 +98,45 @@ type modeConfigResult struct {
 }
 
 // resolveModeConfig resolves model, mode, and engine configuration.
+// If no model config is found but --engine is specified, a minimal config is constructed from flags.
 func resolveModeConfig(modelID string, p RunParams, userCfg *cliconfig.Config) (*modeConfigResult, error) {
+	var modelCfg *runpkg.ModelConfig
+	var modeCfg *runpkg.ModeConfig
+
 	models, err := runpkg.LoadAllModels()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load model configs: %w", err)
+		klog.V(1).Infof("Warning: failed to load model configs: %v", err)
 	}
-	modelCfg, err := runpkg.FindModelConfig(models, modelID)
-	if err != nil {
-		return nil, err
+	if models != nil {
+		modelCfg, err = runpkg.FindModelConfig(models, modelID)
 	}
-	modeCfg, err := runpkg.FindModeConfig(modelCfg, p.Mode)
-	if err != nil {
+
+	if modelCfg != nil && err == nil {
+		// Model config found — use it
+		modeCfg, err = runpkg.FindModeConfig(modelCfg, p.Mode)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// No model config found — fall back to flags
+		if p.Engine == "" {
+			return nil, fmt.Errorf("no model config found for %q and --engine not specified; "+
+				"either add a model config or specify --engine to deploy without a pre-built model config", modelID)
+		}
+		fmt.Fprintf(os.Stderr, "Warning: no model config found for %q, proceeding with flag-only configuration\n", modelID)
+		modelCfg = &runpkg.ModelConfig{ID: modelID, Name: modelID}
+		modeCfg = &runpkg.ModeConfig{
+			Name:   "custom",
+			Engine: p.Engine,
+		}
+	}
+
+	// Apply flag overrides (works for both config-based and flag-only paths)
+	if err := applyFlagOverrides(modeCfg, p); err != nil {
 		return nil, err
 	}
 
 	engineType := modeCfg.Engine
-	if p.Engine != "" {
-		engineType = p.Engine
-	}
 	engineCfg, err := resolveEngine(engineType, userCfg)
 	if err != nil {
 		return nil, err
@@ -174,21 +199,82 @@ func resolveStorageAndModelPath(modelID string, p RunParams, userCfg *cliconfig.
 	}
 }
 
-// buildGenerateOptions builds GenerateOptions from mode config and run params.
-func buildGenerateOptions(name, modelID, modelPath string, modeCfg *runpkg.ModeConfig, p RunParams) (engineplugin.GenerateOptions, error) {
-	distributedSize := int32(0)
-	if modeCfg.Distributed != nil && modeCfg.Distributed.Size > 1 {
-		distributedSize = modeCfg.Distributed.Size
+// parseResources parses a slice of "key=value" strings into a corev1.ResourceList.
+func parseResources(resourceFlags []string) (corev1.ResourceList, error) {
+	result := corev1.ResourceList{}
+	for _, r := range resourceFlags {
+		parts := strings.SplitN(r, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid resource format: %q, expected key=value (e.g. nvidia.com/gpu=1)", r)
+		}
+		qty, err := resource.ParseQuantity(parts[1])
+		if err != nil {
+			return nil, fmt.Errorf("invalid resource quantity %q for %q: %w", parts[1], parts[0], err)
+		}
+		result[corev1.ResourceName(parts[0])] = qty
 	}
+	return result, nil
+}
 
-	envVars := make([]corev1.EnvVar, len(modeCfg.Env))
-	copy(envVars, modeCfg.Env)
+// applyFlagOverrides applies flag values onto a ModeConfig.
+// For Image, DistributedSize, ShmSize: flag value overrides config when non-zero.
+// For Resources: flag values are merged by key (flag wins on conflict).
+// For Env: flag values are appended. For Args: flag values are appended.
+func applyFlagOverrides(modeCfg *runpkg.ModeConfig, p RunParams) error {
+	if p.Engine != "" {
+		modeCfg.Engine = p.Engine
+	}
+	if p.Image != "" {
+		modeCfg.Image = p.Image
+	}
+	if p.DistributedSize > 0 {
+		if modeCfg.Distributed == nil {
+			modeCfg.Distributed = &runpkg.DistributedConfig{}
+		}
+		modeCfg.Distributed.Size = p.DistributedSize
+	}
+	if p.ShmSize != "" {
+		modeCfg.ShmSize = p.ShmSize
+	}
+	if len(p.Resources) > 0 {
+		flagRes, err := parseResources(p.Resources)
+		if err != nil {
+			return err
+		}
+		if modeCfg.Resources == nil {
+			modeCfg.Resources = corev1.ResourceList{}
+		}
+		for k, v := range flagRes {
+			modeCfg.Resources[k] = v
+		}
+	}
 	for _, ev := range p.EnvVars {
 		parts := strings.SplitN(ev, "=", 2)
 		if len(parts) != 2 {
-			return engineplugin.GenerateOptions{}, fmt.Errorf("invalid environment variable format: %q, expected KEY=VALUE", ev)
+			return fmt.Errorf("invalid environment variable format: %q, expected KEY=VALUE", ev)
 		}
-		envVars = append(envVars, corev1.EnvVar{Name: parts[0], Value: parts[1]})
+		found := false
+		for i, existing := range modeCfg.Env {
+			if existing.Name == parts[0] {
+				modeCfg.Env[i].Value = parts[1]
+				found = true
+				break
+			}
+		}
+		if !found {
+			modeCfg.Env = append(modeCfg.Env, corev1.EnvVar{Name: parts[0], Value: parts[1]})
+		}
+	}
+	modeCfg.Args = append(modeCfg.Args, p.ArgsList...)
+	return nil
+}
+
+// buildGenerateOptions builds GenerateOptions from mode config.
+// All flag overrides should already be applied to modeCfg via applyFlagOverrides.
+func buildGenerateOptions(name, modelID, modelPath string, modeCfg *runpkg.ModeConfig) engineplugin.GenerateOptions {
+	distributedSize := int32(0)
+	if modeCfg.Distributed != nil && modeCfg.Distributed.Size > 1 {
+		distributedSize = modeCfg.Distributed.Size
 	}
 
 	var resources corev1.ResourceRequirements
@@ -203,22 +289,17 @@ func buildGenerateOptions(name, modelID, modelPath string, modeCfg *runpkg.ModeC
 		resources.Limits = limits
 	}
 
-	image := modeCfg.Image
-	if p.Image != "" {
-		image = p.Image
-	}
-
 	return engineplugin.GenerateOptions{
 		Name:            name,
 		ModelID:         modelID,
 		ModelPath:       modelPath,
-		Image:           image,
-		Args:            append(modeCfg.Args, p.ArgsList...),
-		Env:             envVars,
+		Image:           modeCfg.Image,
+		Args:            modeCfg.Args,
+		Env:             modeCfg.Env,
 		Resources:       resources,
 		DistributedSize: distributedSize,
 		ShmSize:         modeCfg.ShmSize,
-	}, nil
+	}
 }
 
 // assembleRBG assembles a RoleBasedGroup from pattern and metadata.
@@ -275,10 +356,7 @@ func generateRBG(name, modelID, namespace string, p RunParams, userCfg *cliconfi
 	storageRes := resolveStorageAndModelPath(modelID, p, userCfg)
 
 	// 3. Build GenerateOptions
-	opts, err := buildGenerateOptions(name, modelID, storageRes.modelPath, modeRes.modeCfg, p)
-	if err != nil {
-		return nil, llmmeta.RunMetadata{}, err
-	}
+	opts := buildGenerateOptions(name, modelID, storageRes.modelPath, modeRes.modeCfg)
 
 	// 4. Generate pattern
 	pattern, err := modeRes.enginePlugin.GeneratePattern(opts)
@@ -567,21 +645,24 @@ func testChatCompletionsWithReconnect(
 
 func newRunCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
 	var (
-		replicas       int32
-		mode           string
-		engine         string
-		image          string
-		envVars        []string
-		argsList       []string
-		storage        string
-		revision       string
-		modelPath      string
-		dryRun         bool
-		waitReady      bool
-		waitTimeout    time.Duration
-		testAPI        bool
-		testAPITimeout time.Duration
-		localPort      int32
+		replicas        int32
+		mode            string
+		engine          string
+		image           string
+		envVars         []string
+		argsList        []string
+		storage         string
+		revision        string
+		modelPath       string
+		dryRun          bool
+		waitReady       bool
+		waitTimeout     time.Duration
+		testAPI         bool
+		testAPITimeout  time.Duration
+		localPort       int32
+		resources       []string
+		distributedSize int32
+		shmSize         string
 	)
 
 	cmd := &cobra.Command{
@@ -594,9 +675,12 @@ It supports various inference engines (vLLM, SGLang) and deployment modes optimi
 for different use cases (latency, throughput, etc.).
 
 The command will:
-  1. Load the model configuration from the built-in models database
+  1. Load the model configuration from the built-in models database (if available)
   2. Generate a pod template using the specified inference engine
   3. Create a RoleBasedGroup resource in the cluster
+
+If no model configuration is found, you can still deploy by specifying --engine
+(and optionally --image, --resource, etc.) to provide configuration via flags.
 
 Prerequisites:
   - The model should be available in storage (use 'kubectl rbg llm model pull' first)
@@ -614,6 +698,9 @@ Examples:
 
   # Run with multiple replicas
   kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --replicas 3
+
+  # Deploy a custom model without any model config
+  kubectl rbg llm svc run my-model org/new-model --engine vllm --resource nvidia.com/gpu=1
 
   # Dry run to preview the generated configuration
   kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --dry-run`,
@@ -639,16 +726,19 @@ Examples:
 
 			// Generate RBG (includes config resolution, pattern generation, storage mounting)
 			params := RunParams{
-				Mode:      mode,
-				Engine:    engine,
-				Image:     image,
-				Storage:   storage,
-				Revision:  revision,
-				ModelPath: modelPath,
-				EnvVars:   envVars,
-				ArgsList:  argsList,
-				DryRun:    dryRun,
-				Replicas:  replicas,
+				Mode:            mode,
+				Engine:          engine,
+				Image:           image,
+				Storage:         storage,
+				Revision:        revision,
+				ModelPath:       modelPath,
+				EnvVars:         envVars,
+				ArgsList:        argsList,
+				DryRun:          dryRun,
+				Replicas:        replicas,
+				Resources:       resources,
+				DistributedSize: distributedSize,
+				ShmSize:         shmSize,
 			}
 			rbg, metadata, err := generateRBG(name, modelID, namespace, params, userCfg, cf)
 			if err != nil {
@@ -726,6 +816,9 @@ Examples:
 	cmd.Flags().StringVar(&image, "image", "", "Container image override (default: from mode config)")
 	cmd.Flags().StringArrayVar(&envVars, "env", nil, "Environment variables (KEY=VALUE)")
 	cmd.Flags().StringArrayVar(&argsList, "arg", nil, "Additional arguments for the engine")
+	cmd.Flags().StringArrayVar(&resources, "resource", nil, "Resource requirements (key=value, e.g. nvidia.com/gpu=1)")
+	cmd.Flags().Int32Var(&distributedSize, "distributed-size", 0, "Multi-node deployment size (<=1 means standalone)")
+	cmd.Flags().StringVar(&shmSize, "shm-size", "", "Shared memory size (e.g. 8Gi, 16Gi)")
 	cmd.Flags().StringVar(&storage, "storage", "", "Storage to use (overrides default)")
 	cmd.Flags().StringVar(&revision, "revision", "main", "Model revision")
 	cmd.Flags().StringVar(&modelPath, "model-path", "", "Absolute model path inside the container. Storage is mounted at /models, so the default path is /models/<model>/<revision>")
