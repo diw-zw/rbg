@@ -520,10 +520,14 @@ kubectl rbg llm config add-storage my-pvc -i
 
 ##### config get-storages
 
-List all storage configurations.
+List all storage configurations or show details of one.
 
 ```bash
+# List all storage configurations
 kubectl rbg llm config get-storages
+
+# Show details of a specific storage
+kubectl rbg llm config get-storages my-pvc
 ```
 
 ##### config use-storage
@@ -580,10 +584,14 @@ kubectl rbg llm config add-source huggingface -i
 
 ##### config get-sources
 
-List all source configurations.
+List all source configurations or show details of one.
 
 ```bash
+# List all source configurations
 kubectl rbg llm config get-sources
+
+# Show details of a specific source
+kubectl rbg llm config get-sources huggingface
 ```
 
 ##### config use-source
@@ -614,10 +622,14 @@ kubectl rbg llm config delete-source NAME
 
 ##### config get-engines
 
-List customized engine configurations.
+List customized engine configurations or show details of one.
 
 ```bash
+# List all customized engines
 kubectl rbg llm config get-engines
+
+# Show details of a specific engine
+kubectl rbg llm config get-engines sglang
 ```
 
 ##### config set-engine
@@ -646,7 +658,7 @@ kubectl rbg llm config reset-engine ENGINE_TYPE
 
 ## Configuration File
 
-The configuration is stored at `~/.rbg/config.yaml`:
+The configuration is stored at `~/.rbg/config`:
 
 ```yaml
 apiVersion: rbg/v1alpha1
