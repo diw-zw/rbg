@@ -134,13 +134,15 @@ kubectl rbg llm benchmark dashboard \
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `-f, --config` | - | Path to a YAML config file (mutually exclusive with other parameter flags) |
 | `--task` | `text-to-text` | Benchmark task type |
 | `--max-time-per-run` | `15` | Maximum time per run in minute |
 | `--max-requests-per-run` | `100` | Maximum requests per run |
 | `--traffic-scenario` | - | Traffic scenario (e.g., `D(100,1000)`), can be specified multiple times |
 | `--num-concurrency` | - | List of concurrency levels to run the experiment with |
-| `--api-backend` | `sglang` | API backend type |
+| `--api-backend` | auto | API backend type (overrides auto-discovered value) |
 | `--api-base` | auto | Base URL for model API (auto-discovered from RBG) |
+| `--api-port` | `8000` | Port for the model serving API (used when auto-generating api-base) |
 | `--api-key` | `rbg` | API key for model serving |
 | `--api-model-name` | auto | Model name (defaults to RBG name) |
 | `--experiment-folder-name` | auto | Folder name for results (defaults to job name) |

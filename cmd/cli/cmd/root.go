@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -36,7 +37,7 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:               "kubectl rbg [command]",
+	Use:               "rbg [command]",
 	Short:             "Kubectl plugin for RoleBasedGroup",
 	SilenceUsage:      true,
 	DisableAutoGenTag: true,
@@ -73,4 +74,13 @@ func init() {
 	rootCmd.AddCommand(status.NewStatusCmd(cf))
 	rootCmd.AddCommand(rollout.NewRolloutCmd(cf))
 	rootCmd.AddCommand(llm.NewLLMCmd(cf))
+
+	// Display "kubectl rbg" instead of "rbg" in usage/help output.
+	// This is the standard approach used by kubectl plugins (e.g. krew).
+	replacer := strings.NewReplacer(
+		"{{.UseLine}}", "kubectl {{.UseLine}}",
+		"{{.CommandPath}}", "kubectl {{.CommandPath}}",
+	)
+	rootCmd.SetUsageTemplate(replacer.Replace(rootCmd.UsageTemplate()))
+	rootCmd.SetHelpTemplate(replacer.Replace(rootCmd.HelpTemplate()))
 }
