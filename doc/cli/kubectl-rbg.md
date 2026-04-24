@@ -38,6 +38,7 @@ Usage:
 Available Commands:
   completion  Generate the autocompletion script for the specified shell
   help        Help about any command
+  llm         LLM deployment management commands
   rollout     Manage the rollout of a rbg object
   status      Display rbg status information
 
@@ -45,7 +46,7 @@ Flags:
       --as string                      Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
       --as-group stringArray           Group to impersonate for the operation, this flag can be repeated to specify multiple groups.
       --as-uid string                  UID to impersonate for the operation.
-      --cache-dir string               Default cache directory (default "/Users/gxf/.kube/cache")
+      --cache-dir string               Default cache directory (default "~/.kube/cache")
       --certificate-authority string   Path to a cert file for the certificate authority
       --client-certificate string      Path to a client certificate file for TLS
       --client-key string              Path to a client key file for TLS
@@ -69,120 +70,54 @@ Use "kubectl [command] --help" for more information about each command.
 
 ## 📖 Feature Overview
 
-### Prepare Test Environment
+### Command Reference
 
-1. For example, after applying [RBG Base](../../examples/basic/rbg/base.yaml), the RBG will automatically create ControllerRevisions and the corresponding workloads.
-2. Update the RBG object specification:
+| Command | Description | Documentation |
+|---------|-------------|---------------|
+| `status` | Display RBG status with role readiness and replica counts | [kubectl-rbg-status](kubectl-rbg-status.md) |
+| `rollout` | Manage rollout history, diff, and undo for RBG resources | [kubectl-rbg-rollout](kubectl-rbg-rollout.md) |
+| `llm svc` | Manage LLM inference services — deploy, list, delete, and chat | [kubectl-rbg-llm-svc](kubectl-rbg-llm-svc.md) |
+| `llm model` | Manage LLM models in storage — pull and list models | [kubectl-rbg-llm-model](kubectl-rbg-llm-model.md) |
+| `llm config` | Manage LLM configuration — storage, source, and engine settings | [kubectl-rbg-llm-config](kubectl-rbg-llm-config.md) |
+| `llm benchmark` | Run performance benchmarks against deployed services | [kubectl-rbg-benchmark](kubectl-rbg-benchmark.md) |
+| `llm generate` | Generate optimized RBG deployment configurations using AI Configurator | [kubectl-rbg-llm-generate](kubectl-rbg-llm-generate.md) |
 
-```shell
-$ kubectl patch rolebasedgroup nginx-cluster --type=json -p='[
-  {
-    "op": "replace",
-    "path": "/spec/roles/1/standalonePattern/template/spec/containers/0/resources",
-    "value": {
-      "requests": {
-        "memory": "100Mi"
-      },
-      "limits": {
-        "memory": "512Mi"
-      }
-    }
-  }
-]'
+### RBG Resource Management
+
+```bash
+# View RBG status
+kubectl rbg status nginx-cluster
+
+# View rollout history
+kubectl rbg rollout history nginx-cluster
+
+# Compare current RBG with a specific revision
+kubectl rbg rollout diff nginx-cluster --revision=1
+
+# Rollback to a specific revision
+kubectl rbg rollout undo nginx-cluster --revision=1
 ```
 
-### View RBG Status
+For detailed usage and output examples, see [kubectl-rbg-status](kubectl-rbg-status.md) and [kubectl-rbg-rollout](kubectl-rbg-rollout.md).
 
-```shell
-$ kubectl rbg status nginx-cluster -n default
-📊 Resource Overview
-  Namespace: default
-  Name:      nginx-cluster
+### LLM Deployment Quick Start
 
-  Age:       50s
+```bash
+# 1. Initialize configuration (storage and source)
+kubectl rbg llm config init
 
-📦 Role Statuses
-leader       1/1                (total: 1)      [████████████████] 100%
-worker       3/3                (total: 3)      [████████████████] 100%
+# 2. Pull a model
+kubectl rbg llm model pull Qwen/Qwen3.5-0.8B
 
-∑ Summary: 2 roles | 4/4 Ready
-```
+# 3. Deploy as an inference service
+kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B
 
-### View All ControllerRevisions Corresponding to an RBG
+# 4. Chat with the service
+kubectl rbg llm svc chat my-qwen
 
-```shell
-$ kubectl rbg rollout history nginx-cluster
-Name                                 Revision
-nginx-cluster-8676cf98bd-1           1
-nginx-cluster-6f9cf75ddf-2           2
-```
+# 5. List running services
+kubectl rbg llm svc list
 
-### View Details of a Specific ControllerRevision
-
-```shell
-$ kubectl rbg rollout history nginx-cluster --revision=1
-data:
-  spec:
-    roles:
-      - name: leader
-        replicas: 1
-        standalonePattern:
-          template:
-            spec:
-              containers:
-                - name: nginx-leader
-                  image: nginx:latest
-                  ports:
-                    - containerPort: 80
-      - name: worker
-        replicas: 3
-        dependencies: ["leader"]
-        standalonePattern:
-          template:
-            spec:
-              containers:
-                - name: nginx-worker
-                  image: nginx:latest
-                  ports:
-                    - containerPort: 8080
-metadata:
-  labels:
-    rbg.workloads.x-k8s.io/group-revision: 8676cf98bd
-    rbg.workloads.x-k8s.io/group-name: nginx-cluster
-  name: nginx-cluster-8676cf98bd-1
-  namespace: default
-revision: 1
-```
-
-### View Differences Between Current RBG Object and Specified Revision
-
-```shell
-$ kubectl rbg rollout diff nginx-cluster --revision=1
-  (
-        """
-        ... // 34 identical lines
-                - containerPort: 8080
-                  protocol: TCP
--               resources: {}
-+               resources:
-+                 limits:
-+                   memory: 512Mi
-+                 requests:
-+                   memory: 100Mi
-        ... // 2 identical lines
-        """
-  )
-```
-
-### Roll Back RBG to a Specific ControllerRevision
-
-```shell
-$ kubectl rbg rollout undo nginx-cluster --revision=1
-rbg nginx-cluster rollback to revision 1 successfully
-$ kubectl get po
-NAME                                   READY   STATUS    RESTARTS   AGE
-nginx-cluster-leader-0                 1/1     Running   0          4m41s
-nginx-cluster-worker-97b95d9cd-8xgrm   1/1     Running   0          11s
-nginx-cluster-worker-97b95d9cd-ndvtj   1/1     Running   0          9s
-nginx-cluster-worker-97b95d9cd-tkt27   1/1     Running   0          9s
+# 6. Delete the service
+kubectl rbg llm svc delete my-qwen
 ```
