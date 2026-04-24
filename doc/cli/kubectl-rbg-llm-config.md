@@ -4,7 +4,7 @@
 
 The `kubectl rbg llm config` command group manages the CLI configuration for LLM deployments, including storage backends, model download sources, and inference engine settings.
 
-Configuration is stored locally at `~/.rbg/config.yaml`.
+Configuration is stored locally at `~/.rbg/config`.
 
 ## Usage
 
@@ -225,7 +225,7 @@ kubectl rbg llm config view
 >   Config:
 >     bucket: demo
 >     secretName: oss-name-oss-secret
->     secretNamespace: defualt
+>     secretNamespace: default
 >     subpath: /test-cli/
 >     url: oss-cn-hongkong-internal.aliyuncs.com
 > 

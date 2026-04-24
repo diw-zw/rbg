@@ -33,7 +33,7 @@ $ kubectl rbg -h
 Kubectl plugin for RoleBasedGroup
 
 Usage:
-  kubectl [command]
+  kubectl rbg [command]
 
 Available Commands:
   completion  Generate the autocompletion script for the specified shell
@@ -53,7 +53,7 @@ Flags:
       --cluster string                 The name of the kubeconfig cluster to use
       --context string                 The name of the kubeconfig context to use
       --disable-compression            If true, opt-out of response compression for all requests to the server
-  -h, --help                           help for kubectl
+  -h, --help                           help for rbg
       --insecure-skip-tls-verify       If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
       --kubeconfig string              Path to the kubeconfig file to use for CLI requests.
   -n, --namespace string               If present, the namespace scope for this CLI request
@@ -63,9 +63,7 @@ Flags:
       --token string                   Bearer token for authentication to the API server
       --user string                    The name of the kubeconfig user to use
   -v, --v Level                        number for the log level verbosity
-      --version                        version for kubectl
-
-Use "kubectl [command] --help" for more information about each command.
+      --version                        version for rbg
 ```
 
 ## 📖 Feature Overview

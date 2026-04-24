@@ -208,7 +208,7 @@ kubectl rbg llm svc chat my-qwen --prompt "解释 MoE 架构的优势"
 > Connecting to pod qwen3-6-35b-a3b-inference-0...
 > Connected.
 > 
-> Here\'s a thinking process:
+> Here's a thinking process:
 > ...
 > </think>
 
