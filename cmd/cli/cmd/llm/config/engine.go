@@ -128,6 +128,10 @@ Examples:
 			}
 
 			// List all customized engines
+			if len(cfg.Engines) == 0 {
+				fmt.Println("No engine configuration found in rbg config")
+				return nil
+			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 			_, _ = fmt.Fprintln(w, "TYPE")
 			for _, e := range cfg.Engines {

@@ -143,6 +143,10 @@ Examples:
 			}
 
 			// List all sources
+			if len(cfg.Sources) == 0 {
+				fmt.Println("No source found in rbg config")
+				return nil
+			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 			_, _ = fmt.Fprintln(w, "NAME\tTYPE\tCURRENT")
 			for _, s := range cfg.Sources {

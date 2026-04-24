@@ -178,6 +178,10 @@ Examples:
 			}
 
 			// List all storages
+			if len(cfg.Storages) == 0 {
+				fmt.Println("No storage found in rbg config")
+				return nil
+			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 			_, _ = fmt.Fprintln(w, "NAME\tTYPE\tCURRENT")
 			for _, s := range cfg.Storages {
