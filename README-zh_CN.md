@@ -72,8 +72,12 @@
 
 ### 📦 安装
 
+从 [GitHub Releases](https://github.com/sgl-project/rbg/releases) 安装（最新版本）：
+
 ```shell
-helm install rbg-controller oci://registry-1.docker.io/sglproject/rbg-controller-chart --version v0.7.0-alpha.3
+VERSION=$(curl -sL https://api.github.com/repos/sgl-project/rbg/releases/latest | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
+helm upgrade --install rbgs https://github.com/sgl-project/rbg/releases/download/v$VERSION/rbgs-$VERSION.tgz \
+            --namespace rbgs-system --create-namespace --wait
 ```
 
 详细安装说明请参考 [安装指南](doc/install.md)。
