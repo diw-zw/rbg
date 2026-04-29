@@ -31,14 +31,16 @@ func NewSVCCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
 		Long: `Commands for managing LLM inference services (RoleBasedGroups) created by the CLI.
 
 This command group provides operations for the full lifecycle of an inference service:
-  - run:    Deploy a model as an inference service
-  - list:   List running inference services
-  - delete: Remove an inference service
-  - chat:   Interact with a running service`,
+  - run:           Deploy a model as an inference service
+  - list:          List running inference services
+  - model-configs: List available model configurations
+  - delete:        Remove an inference service
+  - chat:          Interact with a running service`,
 	}
 
 	cmd.AddCommand(newRunCmd(cf))
 	cmd.AddCommand(newListCmd(cf))
+	cmd.AddCommand(newModelConfigsCmd())
 	cmd.AddCommand(newDeleteCmd(cf))
 	cmd.AddCommand(chat.NewChatCmd(cf))
 

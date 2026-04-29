@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `kubectl rbg llm svc` command group manages the full lifecycle of LLM inference services on Kubernetes using RoleBasedGroup. It supports deploying models with various inference engines (vLLM, SGLang), listing and deleting services, and interactively chatting with deployed models.
+The `kubectl rbg llm svc` command group manages the full lifecycle of LLM inference services on Kubernetes using RoleBasedGroup. It supports deploying models with various inference engines (vLLM, SGLang), listing available model configurations, listing and deleting services, and interactively chatting with deployed models.
 
 ## Prerequisites
 
@@ -70,6 +70,18 @@ kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --test-api=false
 ```
 
 By default, the command waits for the service to be ready and tests the API endpoint. Use `--wait=false` to return immediately after creating the RoleBasedGroup.
+
+### List Model Configurations
+
+Before deploying a model with `kubectl rbg llm svc run`, you can list available model configurations to discover supported model IDs, run modes, inference engines, and resource presets. Model configs can be built-in or user-defined (placed in `~/.rbg/models/`).
+
+```bash
+# List all available model configurations
+kubectl rbg llm svc model-configs
+
+# Show full details including engine and source
+kubectl rbg llm svc model-configs -o wide
+```
 
 ### List Services
 
@@ -161,6 +173,12 @@ kubectl rbg llm svc run my-model org/new-model \
 ```
 
 When a model config exists, these flags act as overrides — `--resource` merges by key (flag wins on conflict), `--arg` and `--env` append to the config values.
+
+### model-configs
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-o, --output` | `""` | Output format: `wide` for full details (includes engine, source) |
 
 ### list
 

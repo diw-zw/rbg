@@ -47,6 +47,10 @@ type ModeConfig struct {
 	Env         []corev1.EnvVar     `yaml:"env"`
 	Distributed *DistributedConfig  `yaml:"distributed,omitempty"` // Multi-node deployment config
 	ShmSize     string              `yaml:"shmSize,omitempty"`     // Shared memory size (e.g., "8Gi", "16Gi")
+
+	// Source indicates where this mode was defined ("builtin" or config filename).
+	// Populated by LoadAllModels; excluded from YAML/JSON serialization.
+	Source string `yaml:"-" json:"-"`
 }
 
 // DistributedConfig describes multi-node deployment configuration.
@@ -61,111 +65,89 @@ type modelWithSource struct {
 	source string
 }
 
-// LoadAllModels loads all available model configurations by merging:
-//  1. User-defined models (from the directory returned by GetModelConfigDir(),
-//     default: ~/.rbg/models, overridable via RBG_MODEL_CONFIG env var;
-//     accepts both .yaml and .yml files)
-//  2. Built-in models (embedded models.yaml)
+// LoadAllModels loads all available model configurations and merges them at the
+// mode level: user modes override builtin modes with the same name, while
+// builtin modes with no user counterpart are preserved.
 //
-// User models are placed before built-in models, so they take precedence during lookup.
-// Duplicate detection and warnings are performed during loading.
+// Sources:
+//  1. User-defined models (from GetModelConfigDir(), default: ~/.rbg/models,
+//     overridable via RBG_MODEL_CONFIG env var; accepts .yaml and .yml files)
+//  2. Built-in models (embedded models.yaml)
 func LoadAllModels() ([]ModelConfig, error) {
-	// 1. Load user-defined models with source tracking
 	userModels, err := loadUserModels()
 	if err != nil {
-		// Log warning but don't fail - user models are optional
 		fmt.Fprintf(os.Stderr, "Warning: failed to load user models: %v\n", err)
 	}
 
-	// 2. Load built-in models (always available)
 	builtinModels, err := loadBuiltinModels()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load builtin models: %w", err)
 	}
 
-	// 3. Detect and warn about duplicates
-	detectModelConflicts(userModels, builtinModels)
-
-	// 4. Merge: user models first (higher priority), then builtin models
-	allModels := make([]ModelConfig, 0, len(userModels)+len(builtinModels))
-	for _, m := range userModels {
-		allModels = append(allModels, m.model)
-	}
-	allModels = append(allModels, builtinModels...)
-
-	return allModels, nil
+	return mergeModelConfigs(userModels, builtinModels), nil
 }
 
-// detectModelConflicts checks for duplicate model definitions and warns appropriately
-// Each model ID gets at most one warning, aggregating all definition sources
-func detectModelConflicts(userModels []modelWithSource, builtinModels []ModelConfig) {
-	// 1. Collect all definitions for each model ID
-	// Important: Record user models FIRST (they have higher priority)
-	type definition struct {
-		source string // source file name
+// mergeModelConfigs merges user and builtin model configs at the mode level.
+// Builtin models form the base; user modes override same-named modes,
+// and user-only modes are appended. User-only models are added as-is.
+func mergeModelConfigs(userModels []modelWithSource, builtinModels []ModelConfig) []ModelConfig {
+	modelMap := make(map[string]*ModelConfig, len(builtinModels))
+	for i := range builtinModels {
+		bm := &builtinModels[i]
+		modelMap[bm.ID] = &ModelConfig{ID: bm.ID, Name: bm.Name, Modes: copyModes(bm.Modes, "builtin")}
 	}
 
-	modelDefinitions := make(map[string][]definition)
-
-	// Record user models first (higher priority)
 	for _, um := range userModels {
-		modelDefinitions[um.model.ID] = append(modelDefinitions[um.model.ID], definition{
-			source: um.source,
-		})
-	}
-
-	// Then record builtin models
-	for _, m := range builtinModels {
-		modelDefinitions[m.ID] = append(modelDefinitions[m.ID], definition{
-			source: "builtin",
-		})
-	}
-
-	// 2. Emit aggregated warnings for models with multiple definitions
-	// Sort model IDs for deterministic output order
-	sortedModelIDs := make([]string, 0, len(modelDefinitions))
-	for modelID := range modelDefinitions {
-		sortedModelIDs = append(sortedModelIDs, modelID)
-	}
-	sort.Strings(sortedModelIDs)
-
-	for _, modelID := range sortedModelIDs {
-		defs := modelDefinitions[modelID]
-		if len(defs) <= 1 {
-			continue // Only one definition, no conflict
+		existing, exists := modelMap[um.model.ID]
+		if !exists {
+			modelMap[um.model.ID] = &ModelConfig{ID: um.model.ID, Name: um.model.Name, Modes: copyModes(um.model.Modes, um.source)}
+			continue
 		}
-
-		// Count definitions per source file
-		fileCount := make(map[string]int)
-		for _, d := range defs {
-			fileCount[d.source]++
+		if um.model.Name != "" {
+			existing.Name = um.model.Name
 		}
-
-		// Sort source files for deterministic output order
-		sortedFiles := make([]string, 0, len(fileCount))
-		for file := range fileCount {
-			sortedFiles = append(sortedFiles, file)
+		modeIdx := make(map[string]int, len(existing.Modes))
+		for i := range existing.Modes {
+			modeIdx[existing.Modes[i].Name] = i
 		}
-		sort.Strings(sortedFiles)
-
-		// Build warning message parts
-		parts := make([]string, 0, len(sortedFiles))
-		for _, file := range sortedFiles {
-			count := fileCount[file]
-			if count == 1 {
-				parts = append(parts, fmt.Sprintf("1 in %s", file))
+		for _, umode := range um.model.Modes {
+			umode.Source = um.source
+			if idx, found := modeIdx[umode.Name]; found {
+				fmt.Fprintf(os.Stderr, "Warning: mode %q for model %q redefined by %s, overriding %s\n",
+					umode.Name, um.model.ID, um.source, existing.Modes[idx].Source)
+				existing.Modes[idx] = umode
 			} else {
-				parts = append(parts, fmt.Sprintf("%d in %s", count, file))
+				existing.Modes = append(existing.Modes, umode)
 			}
 		}
-
-		// First definition wins (user models come first)
-		firstSource := defs[0].source
-
-		fmt.Fprintf(os.Stderr,
-			"Warning: model %q has %d definitions (%s), first definition in %s will be used\n",
-			modelID, len(defs), strings.Join(parts, ", "), firstSource)
 	}
+
+	result := make([]ModelConfig, 0, len(modelMap))
+	for _, mc := range modelMap {
+		result = append(result, *mc)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
+// copyModes returns a deep copy of the given modes, setting each mode's Source.
+func copyModes(modes []ModeConfig, source string) []ModeConfig {
+	out := make([]ModeConfig, len(modes))
+	for i, m := range modes {
+		m.Source = source
+		if m.Args != nil {
+			m.Args = append([]string(nil), m.Args...)
+		}
+		if m.Env != nil {
+			m.Env = append([]corev1.EnvVar(nil), m.Env...)
+		}
+		if m.Distributed != nil {
+			d := *m.Distributed
+			m.Distributed = &d
+		}
+		out[i] = m
+	}
+	return out
 }
 
 // loadBuiltinModels loads the embedded model configurations
