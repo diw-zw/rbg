@@ -291,13 +291,25 @@ func TestLoadAllModelsUserOverridesBuiltin(t *testing.T) {
 	if foundModel.Name != "My Override" {
 		t.Errorf("Expected user override 'My Override', got %q", foundModel.Name)
 	}
-	if foundModel.Modes[0].Image != "my-custom-image:latest" {
-		t.Errorf("Expected user image 'my-custom-image:latest', got %q", foundModel.Modes[0].Image)
+
+	// Locate the "standard" mode (modes are sorted by name)
+	var standardMode *ModeConfig
+	for i := range foundModel.Modes {
+		if foundModel.Modes[i].Name == "standard" {
+			standardMode = &foundModel.Modes[i]
+			break
+		}
+	}
+	if standardMode == nil {
+		t.Fatal("Mode 'standard' not found in merged model")
+	}
+	if standardMode.Image != "my-custom-image:latest" {
+		t.Errorf("Expected user image 'my-custom-image:latest', got %q", standardMode.Image)
 	}
 
 	// User's "standard" mode should be sourced from override.yaml
-	if foundModel.Modes[0].Source != "override.yaml" {
-		t.Errorf("Expected 'standard' mode source 'override.yaml', got %q", foundModel.Modes[0].Source)
+	if standardMode.Source != "override.yaml" {
+		t.Errorf("Expected 'standard' mode source 'override.yaml', got %q", standardMode.Source)
 	}
 
 	// Builtin modes not overridden should still be present

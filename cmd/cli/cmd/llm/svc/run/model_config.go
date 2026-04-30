@@ -90,6 +90,8 @@ func LoadAllModels() ([]ModelConfig, error) {
 // mergeModelConfigs merges user and builtin model configs at the mode level.
 // Builtin models form the base; user modes override same-named modes,
 // and user-only modes are appended. User-only models are added as-is.
+// Within a single user model definition, duplicate modes are deduplicated
+// with last-one-wins semantics.
 func mergeModelConfigs(userModels []modelWithSource, builtinModels []ModelConfig) []ModelConfig {
 	modelMap := make(map[string]*ModelConfig, len(builtinModels))
 	for i := range builtinModels {
@@ -100,24 +102,26 @@ func mergeModelConfigs(userModels []modelWithSource, builtinModels []ModelConfig
 	for _, um := range userModels {
 		existing, exists := modelMap[um.model.ID]
 		if !exists {
-			modelMap[um.model.ID] = &ModelConfig{ID: um.model.ID, Name: um.model.Name, Modes: copyModes(um.model.Modes, um.source)}
-			continue
+			existing = &ModelConfig{ID: um.model.ID, Name: um.model.Name}
+			modelMap[um.model.ID] = existing
 		}
 		if um.model.Name != "" {
 			existing.Name = um.model.Name
 		}
-		modeIdx := make(map[string]int, len(existing.Modes))
-		for i := range existing.Modes {
-			modeIdx[existing.Modes[i].Name] = i
-		}
 		for _, umode := range um.model.Modes {
-			umode.Source = um.source
-			if idx, found := modeIdx[umode.Name]; found {
-				fmt.Fprintf(os.Stderr, "Warning: mode %q for model %q redefined by %s, overriding %s\n",
-					umode.Name, um.model.ID, um.source, existing.Modes[idx].Source)
-				existing.Modes[idx] = umode
-			} else {
-				existing.Modes = append(existing.Modes, umode)
+			umodeCopy := copyMode(umode, um.source)
+			found := false
+			for i := range existing.Modes {
+				if existing.Modes[i].Name == umodeCopy.Name {
+					fmt.Fprintf(os.Stderr, "Warning: mode %q for model %q redefined by %s, overriding %s\n",
+						umodeCopy.Name, um.model.ID, um.source, existing.Modes[i].Source)
+					existing.Modes[i] = umodeCopy
+					found = true
+					break
+				}
+			}
+			if !found {
+				existing.Modes = append(existing.Modes, umodeCopy)
 			}
 		}
 	}
@@ -130,22 +134,30 @@ func mergeModelConfigs(userModels []modelWithSource, builtinModels []ModelConfig
 	return result
 }
 
+// copyMode returns a deep copy of a single ModeConfig with Source set.
+func copyMode(mode ModeConfig, source string) ModeConfig {
+	mode.Source = source
+	if mode.Args != nil {
+		mode.Args = append([]string(nil), mode.Args...)
+	}
+	if mode.Env != nil {
+		mode.Env = append([]corev1.EnvVar(nil), mode.Env...)
+	}
+	if mode.Resources != nil {
+		mode.Resources = mode.Resources.DeepCopy()
+	}
+	if mode.Distributed != nil {
+		d := *mode.Distributed
+		mode.Distributed = &d
+	}
+	return mode
+}
+
 // copyModes returns a deep copy of the given modes, setting each mode's Source.
 func copyModes(modes []ModeConfig, source string) []ModeConfig {
 	out := make([]ModeConfig, len(modes))
 	for i, m := range modes {
-		m.Source = source
-		if m.Args != nil {
-			m.Args = append([]string(nil), m.Args...)
-		}
-		if m.Env != nil {
-			m.Env = append([]corev1.EnvVar(nil), m.Env...)
-		}
-		if m.Distributed != nil {
-			d := *m.Distributed
-			m.Distributed = &d
-		}
-		out[i] = m
+		out[i] = copyMode(m, source)
 	}
 	return out
 }

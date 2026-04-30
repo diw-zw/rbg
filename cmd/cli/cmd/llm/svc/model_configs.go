@@ -19,6 +19,7 @@ package svc
 import (
 	"fmt"
 	"os"
+	"sort"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -46,6 +47,10 @@ Examples:
   kubectl rbg llm svc model-configs -o wide
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if output != "" && output != "wide" {
+				return fmt.Errorf("unsupported output format %q, supported values: wide", output)
+			}
+
 			models, err := runpkg.LoadAllModels()
 			if err != nil {
 				return fmt.Errorf("failed to load model configurations: %w", err)
@@ -56,21 +61,40 @@ Examples:
 				return nil
 			}
 
+			for i := range models {
+				sort.Slice(models[i].Modes, func(a, b int) bool {
+					return models[i].Modes[a].Name < models[i].Modes[b].Name
+				})
+			}
+
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			write := func(format string, a ...any) error {
+				_, err := fmt.Fprintf(w, format, a...)
+				return err
+			}
+
 			if output == "wide" {
-				fmt.Fprintln(w, "MODEL ID\tMODE\tENGINE\tSOURCE\tDESCRIPTION")
+				if err := write("MODEL ID\tMODE\tENGINE\tSOURCE\tDESCRIPTION\n"); err != nil {
+					return err
+				}
 				for _, m := range models {
 					for _, mode := range m.Modes {
-						fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-							m.ID, mode.Name, mode.Engine, mode.Source, mode.Description)
+						if err := write("%s\t%s\t%s\t%s\t%s\n",
+							m.ID, mode.Name, mode.Engine, mode.Source, mode.Description); err != nil {
+							return err
+						}
 					}
 				}
 			} else {
-				fmt.Fprintln(w, "MODEL ID\tMODE\tDESCRIPTION")
+				if err := write("MODEL ID\tMODE\tDESCRIPTION\n"); err != nil {
+					return err
+				}
 				for _, m := range models {
 					for _, mode := range m.Modes {
-						fmt.Fprintf(w, "%s\t%s\t%s\n",
-							m.ID, mode.Name, mode.Description)
+						if err := write("%s\t%s\t%s\n",
+							m.ID, mode.Name, mode.Description); err != nil {
+							return err
+						}
 					}
 				}
 			}
