@@ -291,8 +291,36 @@ func TestLoadAllModelsUserOverridesBuiltin(t *testing.T) {
 	if foundModel.Name != "My Override" {
 		t.Errorf("Expected user override 'My Override', got %q", foundModel.Name)
 	}
-	if foundModel.Modes[0].Image != "my-custom-image:latest" {
-		t.Errorf("Expected user image 'my-custom-image:latest', got %q", foundModel.Modes[0].Image)
+
+	// Locate the "standard" mode (modes are sorted by name)
+	var standardMode *ModeConfig
+	for i := range foundModel.Modes {
+		if foundModel.Modes[i].Name == "standard" {
+			standardMode = &foundModel.Modes[i]
+			break
+		}
+	}
+	if standardMode == nil {
+		t.Fatal("Mode 'standard' not found in merged model")
+	}
+	if standardMode.Image != "my-custom-image:latest" {
+		t.Errorf("Expected user image 'my-custom-image:latest', got %q", standardMode.Image)
+	}
+
+	// User's "standard" mode should be sourced from override.yaml
+	if standardMode.Source != "override.yaml" {
+		t.Errorf("Expected 'standard' mode source 'override.yaml', got %q", standardMode.Source)
+	}
+
+	// Builtin modes not overridden should still be present
+	modeNames := make(map[string]bool)
+	for _, m := range foundModel.Modes {
+		modeNames[m.Name] = true
+	}
+	for _, expected := range []string{"throughput", "latency", "distributed-sglang", "distributed-vllm"} {
+		if !modeNames[expected] {
+			t.Errorf("Expected builtin mode %q to be preserved after mode-level merge", expected)
+		}
 	}
 }
 
@@ -357,13 +385,13 @@ func TestLoadAllModelsUserDuplicate(t *testing.T) {
 		t.Fatal("Model my-org/duplicate-model not found")
 	}
 
-	// Should be from file-a.yaml (first alphabetically)
-	if foundModel.Name != "Definition A" {
-		t.Errorf("Expected first definition 'Definition A', got %q", foundModel.Name)
+	// Should be from file-b.yaml (last alphabetically wins with mode-level merge)
+	if foundModel.Name != "Definition B" {
+		t.Errorf("Expected 'Definition B' from file-b.yaml, got %q", foundModel.Name)
 	}
-	// Verify resources from first definition (file-a.yaml)
-	if gpu, ok := foundModel.Modes[0].Resources["nvidia.com/gpu"]; !ok || gpu.String() != "1" {
-		t.Errorf("Expected first definition GPU 1, got %v", foundModel.Modes[0].Resources["nvidia.com/gpu"])
+	// Verify resources from file-b.yaml
+	if gpu, ok := foundModel.Modes[0].Resources["nvidia.com/gpu"]; !ok || gpu.String() != "2" {
+		t.Errorf("Expected GPU 2 from file-b.yaml, got %v", foundModel.Modes[0].Resources["nvidia.com/gpu"])
 	}
 }
 
@@ -430,13 +458,13 @@ func TestLoadAllModelsMultipleDuplicatesAggregated(t *testing.T) {
 		t.Fatal("Model my-org/triple-model not found")
 	}
 
-	// Should be the first definition
-	if foundModel.Name != "Definition 1" {
-		t.Errorf("Expected first definition 'Definition 1', got %q", foundModel.Name)
+	// With mode-level merge, the last definition in the file wins.
+	if foundModel.Name != "Definition 3" {
+		t.Errorf("Expected last definition 'Definition 3', got %q", foundModel.Name)
 	}
-	// Verify resources from first definition
-	if gpu, ok := foundModel.Modes[0].Resources["nvidia.com/gpu"]; !ok || gpu.String() != "1" {
-		t.Errorf("Expected first definition GPU 1, got %v", foundModel.Modes[0].Resources["nvidia.com/gpu"])
+	// Verify resources from last definition
+	if gpu, ok := foundModel.Modes[0].Resources["nvidia.com/gpu"]; !ok || gpu.String() != "3" {
+		t.Errorf("Expected last definition GPU 3, got %v", foundModel.Modes[0].Resources["nvidia.com/gpu"])
 	}
 }
 

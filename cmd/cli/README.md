@@ -147,6 +147,32 @@ kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --model-path /models/my-custom
 kubectl rbg llm svc run my-qwen Qwen/Qwen3.5-0.8B --test-api=false
 ```
 
+### llm svc model-configs
+
+List available model configurations (built-in and user-defined).
+
+This command helps you discover which models and run modes are available before deploying with `kubectl rbg llm svc run`. Each model config includes the model ID, supported modes, inference engine, and resource requirements.
+
+```bash
+kubectl rbg llm svc model-configs [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--output` | `-o` | Output format: `-o wide` for full details | |
+
+**Examples:**
+
+```bash
+# List all available model configurations
+kubectl rbg llm svc model-configs
+
+# Show full details with engine and source
+kubectl rbg llm svc model-configs -o wide
+```
+
 ### llm svc list
 
 List all running LLM inference services.
