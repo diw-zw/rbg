@@ -15,8 +15,11 @@ interface CoordData {
   max: number
   values: number[]
   isMetric: boolean
+<<<<<<< HEAD
   isCategorical: boolean
   categories: string[]
+=======
+>>>>>>> 417c1668 (feat(cli): auto-benchmark add ui)
 }
 
 export function ParallelCoordinates({ trials, optimize, height = 420 }: ParallelCoordinatesProps) {
@@ -48,6 +51,7 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
     const sortedParams = Array.from(paramNames).sort()
 
     // Build axes: parameters + the optimize metric (score) at the end
+<<<<<<< HEAD
     const axes: CoordData[] = sortedParams.map(name => {
       // Detect if this parameter is categorical by scanning all trial values
       let isCategorical = false
@@ -81,6 +85,15 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
         categories,
       }
     })
+=======
+    const axes: CoordData[] = sortedParams.map(name => ({
+      label: name,
+      min: 0,
+      max: 0,
+      values: [],
+      isMetric: false,
+    }))
+>>>>>>> 417c1668 (feat(cli): auto-benchmark add ui)
 
     // Add score axis at the end
     axes.push({
@@ -89,8 +102,11 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
       max: 0,
       values: [],
       isMetric: true,
+<<<<<<< HEAD
       isCategorical: false,
       categories: [],
+=======
+>>>>>>> 417c1668 (feat(cli): auto-benchmark add ui)
     })
 
     // Collect values
@@ -98,6 +114,7 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
       const p = t.params.default || {}
       sortedParams.forEach((name, i) => {
         const v = p[name]
+<<<<<<< HEAD
         const axis = axes[i]
         if (axis.isCategorical) {
           // Map categorical value to index
@@ -108,6 +125,10 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
           }
         } else if (typeof v === 'number') {
           axis.values.push(v)
+=======
+        if (typeof v === 'number') {
+          axes[i].values.push(v)
+>>>>>>> 417c1668 (feat(cli): auto-benchmark add ui)
         }
       })
       axes[axes.length - 1].values.push(t.slaPass ? t.score : 0)
@@ -115,12 +136,15 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
 
     // Compute min/max for each axis with padding
     axes.forEach(axis => {
+<<<<<<< HEAD
       if (axis.isCategorical) {
         // For categorical axes, min=0, max=N-1 (no padding)
         axis.min = 0
         axis.max = Math.max(axis.categories.length - 1, 0)
         return
       }
+=======
+>>>>>>> 417c1668 (feat(cli): auto-benchmark add ui)
       if (axis.values.length === 0) { axis.min = 0; axis.max = 1; return }
       let mn = Infinity, mx = -Infinity
       axis.values.forEach(v => { if (v < mn) mn = v; if (v > mx) mx = v })
@@ -284,6 +308,30 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
             return <circle key={`dot-${pi}`} cx={x} cy={y} r={4} fill="white" stroke={trialLines[hoveredTrial].color} strokeWidth={2.5} />
           })}
 
+<<<<<<< HEAD
+=======
+          {/* Score labels at the rightmost axis */}
+          {trialLines.map(line => {
+            const lastP = line.points[line.points.length - 1]
+            const x = xForAxis(lastP.x)
+            const y = padding.top + lastP.y * plotH
+            return (
+              <text
+                key={`score-${line.trialIdx}`}
+                x={x + 8}
+                y={y + 4}
+                className="fill-foreground"
+                fontSize="10"
+                fontFamily="JetBrains Mono, monospace"
+                fontWeight="500"
+                opacity={hoveredTrial === null ? 0.85 : (hoveredTrial === line.trialIdx ? 1 : 0.1)}
+              >
+                {formatNumber(line.score)}
+              </text>
+            )
+          })}
+
+>>>>>>> 417c1668 (feat(cli): auto-benchmark add ui)
           {/* Axis labels (bottom) */}
           {axes.map((axis, i) => {
             const x = xForAxis(i)
@@ -303,6 +351,7 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
             )
           })}
 
+<<<<<<< HEAD
           {/* Axis value labels at each intersection point */}
           {trialLines.map((line, lineIdx) => {
             return (
@@ -338,6 +387,33 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
                     </text>
                   )
                 })}
+=======
+          {/* Top tick labels (min/max values) */}
+          {axes.map((axis, i) => {
+            const x = xForAxis(i)
+            return (
+              <g key={`ticks-${i}`}>
+                <text
+                  x={x}
+                  y={padding.top - 5}
+                  textAnchor="middle"
+                  className="fill-muted-foreground"
+                  fontSize="9"
+                  fontFamily="JetBrains Mono, monospace"
+                >
+                  {formatNumber(axis.max)}
+                </text>
+                <text
+                  x={x}
+                  y={padding.top + plotH + 14}
+                  textAnchor="middle"
+                  className="fill-muted-foreground"
+                  fontSize="9"
+                  fontFamily="JetBrains Mono, monospace"
+                >
+                  {formatNumber(axis.min)}
+                </text>
+>>>>>>> 417c1668 (feat(cli): auto-benchmark add ui)
               </g>
             )
           })}
