@@ -46,8 +46,8 @@ func TestNewGetSourcesCmd(t *testing.T) {
 	cmd := newGetSourcesCmd()
 
 	assert.NotNil(t, cmd)
-	assert.Equal(t, "get-sources", cmd.Use)
-	assert.Equal(t, "List all source configurations", cmd.Short)
+	assert.Equal(t, "get-sources [NAME]", cmd.Use)
+	assert.Equal(t, "List all source configurations or show details of one", cmd.Short)
 }
 
 func TestNewUseSourceCmd(t *testing.T) {

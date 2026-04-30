@@ -74,6 +74,9 @@ kubectl rbg llm config add-storage NAME -i
 # List all storage configurations
 kubectl rbg llm config get-storages
 
+# Show details of a specific storage
+kubectl rbg llm config get-storages my-pvc
+
 # Set the active storage
 kubectl rbg llm config use-storage NAME
 
@@ -129,6 +132,9 @@ kubectl rbg llm config add-source NAME -i
 # List all source configurations
 kubectl rbg llm config get-sources
 
+# Show details of a specific source
+kubectl rbg llm config get-sources huggingface
+
 # Set the active source
 kubectl rbg llm config use-source NAME
 
@@ -171,6 +177,9 @@ kubectl rbg llm config set-engine ENGINE_TYPE --config key=value
 
 # List customized engine configurations
 kubectl rbg llm config get-engines
+
+# Show details of a specific engine
+kubectl rbg llm config get-engines sglang
 
 # Remove custom configuration, revert to defaults
 kubectl rbg llm config reset-engine ENGINE_TYPE
@@ -245,9 +254,23 @@ kubectl rbg llm config get-storages
 > oss-pvc    pvc   
 > oss-name   oss   *
 
+kubectl rbg llm config get-storages oss-name
+> Storage: oss-name (active)
+>   Type: oss
+>   Config:
+>     bucket: demo
+>     secretName: oss-name-oss-secret
+>     secretNamespace: default
+>     subpath: /test-cli/
+>     url: oss-cn-hongkong-internal.aliyuncs.com
+
 kubectl rbg llm config get-sources
 > NAME         TYPE         CURRENT
 > huggingface  huggingface  *
+
+kubectl rbg llm config get-sources huggingface
+> Source: huggingface (active)
+>   Type: huggingface
 
 # 7. Update a configuration
 kubectl rbg llm config set-storage my-pvc --config pvcName=new-model-pvc

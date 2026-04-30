@@ -187,14 +187,6 @@ if [ -d "$MODELS_DIR" ]; then
 
             # Add path info to metadata (use | as sed delimiter to avoid issues with / in paths)
             cat "$metadata_file" >> "$OUTPUT_FILE"
-          else
-            # No metadata file, create basic entry
-            if [ "$first" = true ]; then
-              first=false
-            else
-              echo "," >> "$OUTPUT_FILE"
-            fi
-            echo "{\"modelID\":\"$model_name\",\"revision\":\"$revision\",\"downloadedAt\":\"unknown\"}" >> "$OUTPUT_FILE"
           fi
         fi
       done

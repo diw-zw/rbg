@@ -48,8 +48,8 @@ func TestNewGetStoragesCmd(t *testing.T) {
 	cmd := newGetStoragesCmd()
 
 	assert.NotNil(t, cmd)
-	assert.Equal(t, "get-storages", cmd.Use)
-	assert.Equal(t, "List all storage configurations", cmd.Short)
+	assert.Equal(t, "get-storages [NAME]", cmd.Use)
+	assert.Equal(t, "List all storage configurations or show details of one", cmd.Short)
 }
 
 func TestNewUseStorageCmd(t *testing.T) {

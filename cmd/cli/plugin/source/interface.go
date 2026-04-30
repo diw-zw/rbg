@@ -66,7 +66,7 @@ func Get(pluginType string, config map[string]interface{}) (Plugin, error) {
 func ValidateConfig(pluginType string, config map[string]interface{}) error {
 	factory, ok := registry[pluginType]
 	if !ok {
-		return fmt.Errorf("unknown source type %q", pluginType)
+		return fmt.Errorf("unknown source type %q. . Supported types: %v", pluginType, RegisteredNames())
 	}
 	return util.ValidateConfig(factory().ConfigFields(), config)
 }
