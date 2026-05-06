@@ -107,12 +107,6 @@ func (o *OSSStorage) Init(config map[string]interface{}) error {
 	return nil
 }
 
-// Exists checks if the model exists in storage
-func (o *OSSStorage) Exists(modelID string) (bool, error) {
-	// TODO: Implement actual check via OSS API
-	return false, nil
-}
-
 // PreMount verifies PV and PVC resources exist. Secret is expected to already exist
 // (created by PreAdd) and is referenced via secretName/secretNamespace.
 func (o *OSSStorage) preMount(c client.Client, storageName, namespace string) error {

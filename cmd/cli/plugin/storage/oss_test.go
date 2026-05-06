@@ -165,13 +165,6 @@ func TestOSSStorage_Init_StorageSizeFixed(t *testing.T) {
 	assert.Equal(t, "1Ti", p.storageSize, "storageSize should always be 1Ti")
 }
 
-func TestOSSStorage_Exists(t *testing.T) {
-	p := &OSSStorage{}
-	exists, err := p.Exists("any-model")
-	require.NoError(t, err)
-	assert.False(t, exists)
-}
-
 // testOSSWithSecretRef creates an OSSStorage with secretName/secretNamespace for testing
 func testOSSWithSecretRef() *OSSStorage {
 	return &OSSStorage{

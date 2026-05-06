@@ -107,7 +107,11 @@ class StudyManager:
         """Create or load an Optuna study."""
 
         def constraints_func(trial: optuna.trial.FrozenTrial) -> list[float]:
-            return trial.user_attrs.get("constraints", [0.0])
+            if "constraints" not in trial.user_attrs:
+                raise ValueError(
+                    f"Trial {trial.number} missing 'constraints' user attr"
+                )
+            return trial.user_attrs["constraints"]
 
         samp = _create_sampler(sampler, seed, constraints_func, sampler_kwargs)
 
@@ -192,16 +196,19 @@ class StudyManager:
         study = self.studies[study_name]
 
         # Idempotent: skip if already told (restart scenario).
-        if trial_id < len(study.trials):
-            existing = study.trials[trial_id]
-            if existing.state in (TrialState.COMPLETE, TrialState.FAIL):
-                logger.info(
-                    "Study %r: trial #%d already %s, skipping tell",
-                    study_name,
-                    trial_id,
-                    existing.state.name,
-                )
-                return {"status": "ok", "skipped": True}
+        trials_by_number = {t.number: t for t in study.trials}
+        existing = trials_by_number.get(trial_id)
+        if existing is not None and existing.state in (
+            TrialState.COMPLETE,
+            TrialState.FAIL,
+        ):
+            logger.info(
+                "Study %r: trial #%d already %s, skipping tell",
+                study_name,
+                trial_id,
+                existing.state.name,
+            )
+            return {"status": "ok", "skipped": True}
 
         pending = self.pending_trials.get(study_name)
 
@@ -216,14 +223,22 @@ class StudyManager:
         else:
             constraint_value = 0.0 if sla_pass else 1.0
             if pending is not None and pending.number == trial_id:
+                # Normal path: pending Trial has storage reference, set attr before tell.
                 pending.set_user_attr("constraints", [constraint_value])
                 study.tell(pending, score)
             else:
-                # Fallback for resumed trials — tell by id, set attr after.
-                study.tell(trial_id, score)
-                study.trials[trial_id].set_user_attr(
-                    "constraints", [constraint_value]
+                # Fallback for resumed trials: set constraints directly via storage
+                # BEFORE tell, because constraints_func is evaluated inside tell's after_trial.
+                trial_id_in_storage = (
+                    study._storage.get_trial_id_from_study_id_trial_number(
+                        study._study_id, trial_id
+                    )
                 )
+                study._storage.set_trial_user_attr(
+                    trial_id_in_storage, "constraints", [constraint_value]
+                )
+                study.tell(trial_id, score, skip_if_finished=True)
+
             logger.info(
                 "Study %r: trial #%d score=%.4f sla_pass=%s",
                 study_name,
@@ -246,7 +261,7 @@ class StudyManager:
         completed = sum(
             1
             for t in study.trials
-            if t.state in (TrialState.COMPLETE, TrialState.FAIL)
+            if t.state == TrialState.COMPLETE
         )
         max_t = self.max_trials.get(study_name, 0)
         space_size = self.space_sizes.get(study_name, 0)

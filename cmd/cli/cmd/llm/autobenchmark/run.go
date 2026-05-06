@@ -179,10 +179,9 @@ func (o *runOptions) run(ctx context.Context) error {
 					RestartPolicy:      corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
 						{
-							Name:  "controller",
-							Image: o.image,
-							// TODO: switch to ifnotpresent
-							ImagePullPolicy: corev1.PullAlways,
+							Name:            "controller",
+							Image:           o.image,
+							ImagePullPolicy: corev1.PullIfNotPresent,
 							Command:         []string{"/autobenchmark"},
 							Args: []string{
 								"--config", "/etc/autobenchmark/config.yaml",
