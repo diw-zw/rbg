@@ -15,6 +15,8 @@ interface CoordData {
   max: number
   values: number[]
   isMetric: boolean
+  isCategorical: boolean
+  categories: string[]
 }
 
 export function ParallelCoordinates({ trials, optimize, height = 420 }: ParallelCoordinatesProps) {
@@ -46,13 +48,39 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
     const sortedParams = Array.from(paramNames).sort()
 
     // Build axes: parameters + the optimize metric (score) at the end
-    const axes: CoordData[] = sortedParams.map(name => ({
-      label: name,
-      min: 0,
-      max: 0,
-      values: [],
-      isMetric: false,
-    }))
+    const axes: CoordData[] = sortedParams.map(name => {
+      // Detect if this parameter is categorical by scanning all trial values
+      let isCategorical = false
+      trials.forEach(t => {
+        const v = (t.params.default || {})[name]
+        if (v !== undefined && typeof v !== 'number') {
+          isCategorical = true
+        }
+      })
+
+      // Build categories list for categorical axes
+      const categories: string[] = []
+      if (isCategorical) {
+        const valueSet = new Set<string>()
+        trials.forEach(t => {
+          const v = (t.params.default || {})[name]
+          if (v !== undefined) {
+            valueSet.add(typeof v === 'boolean' ? String(v) : String(v))
+          }
+        })
+        categories.push(...Array.from(valueSet).sort())
+      }
+
+      return {
+        label: name,
+        min: 0,
+        max: 0,
+        values: [],
+        isMetric: false,
+        isCategorical,
+        categories,
+      }
+    })
 
     // Add score axis at the end
     axes.push({
@@ -61,6 +89,8 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
       max: 0,
       values: [],
       isMetric: true,
+      isCategorical: false,
+      categories: [],
     })
 
     // Collect values
@@ -68,8 +98,16 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
       const p = t.params.default || {}
       sortedParams.forEach((name, i) => {
         const v = p[name]
-        if (typeof v === 'number') {
-          axes[i].values.push(v)
+        const axis = axes[i]
+        if (axis.isCategorical) {
+          // Map categorical value to index
+          const strV = typeof v === 'boolean' ? String(v) : String(v)
+          const idx = axis.categories.indexOf(strV)
+          if (idx >= 0) {
+            axis.values.push(idx)
+          }
+        } else if (typeof v === 'number') {
+          axis.values.push(v)
         }
       })
       axes[axes.length - 1].values.push(t.slaPass ? t.score : 0)
@@ -77,6 +115,12 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
 
     // Compute min/max for each axis with padding
     axes.forEach(axis => {
+      if (axis.isCategorical) {
+        // For categorical axes, min=0, max=N-1 (no padding)
+        axis.min = 0
+        axis.max = Math.max(axis.categories.length - 1, 0)
+        return
+      }
       if (axis.values.length === 0) { axis.min = 0; axis.max = 1; return }
       let mn = Infinity, mx = -Infinity
       axis.values.forEach(v => { if (v < mn) mn = v; if (v > mx) mx = v })
@@ -93,7 +137,19 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
 
       sortedParams.forEach((name, i) => {
         const v = p[name]
-        if (typeof v === 'number') {
+        const axis = axes[i]
+        if (axis.isCategorical) {
+          // Map categorical value to y position
+          const strV = typeof v === 'boolean' ? String(v) : String(v)
+          const idx = axis.categories.indexOf(strV)
+          if (idx >= 0 && axis.categories.length > 1) {
+            const ratio = idx / (axis.categories.length - 1)
+            points.push({ x: i, y: 1 - ratio })
+          } else if (idx >= 0) {
+            // Single category: all lines pass through midpoint
+            points.push({ x: i, y: 0.5 })
+          }
+        } else if (typeof v === 'number') {
           const ratio = axes[i].max === axes[i].min ? 0.5 : (v - axes[i].min) / (axes[i].max - axes[i].min)
           points.push({ x: i, y: 1 - ratio })
         }
@@ -268,9 +324,57 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
             )
           })}
 
-          {/* Top tick labels (min/max values) */}
+          {/* Top tick labels (min/max values or category labels) */}
           {axes.map((axis, i) => {
             const x = xForAxis(i)
+            if (axis.isCategorical) {
+              // Render category labels along the axis
+              if (axis.categories.length === 0) return null
+              if (axis.categories.length > 12) {
+                // Too many categories: show count instead
+                return (
+                  <g key={`ticks-${i}`}>
+                    <text
+                      x={x + 8}
+                      y={padding.top + plotH / 2 + 4}
+                      textAnchor="start"
+                      className="fill-muted-foreground"
+                      fontSize="9"
+                      fontFamily="JetBrains Mono, monospace"
+                    >
+                      {axis.categories.length} values
+                    </text>
+                  </g>
+                )
+              }
+              return (
+                <g key={`ticks-${i}`}>
+                  {axis.categories.map((cat, ci) => {
+                    let y: number
+                    if (axis.categories.length === 1) {
+                      y = padding.top + plotH / 2
+                    } else {
+                      const ratio = ci / (axis.categories.length - 1)
+                      y = padding.top + (1 - ratio) * plotH
+                    }
+                    return (
+                      <text
+                        key={cat}
+                        x={x + 8}
+                        y={y + 4}
+                        textAnchor="start"
+                        className="fill-muted-foreground"
+                        fontSize="9"
+                        fontFamily="JetBrains Mono, monospace"
+                      >
+                        {axisLabelShort(cat)}
+                      </text>
+                    )
+                  })}
+                </g>
+              )
+            }
+            // Numeric axis: show min/max labels
             return (
               <g key={`ticks-${i}`}>
                 <text
