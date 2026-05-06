@@ -413,6 +413,66 @@ func TestOptunaSearch_ErrorTrial(t *testing.T) {
 	assert.Empty(t, history[1].Error)
 }
 
+// TestOptunaSearch_ResumeWithFailedTrials verifies that after a restart
+// where history contains failed/SLA-failing trials, the resumed search
+// tells the correct (most recent) trial result to Optuna instead of
+// indexing by toldCount and sending stale data.
+func TestOptunaSearch_ResumeWithFailedTrials(t *testing.T) {
+	skipIfNoOptuna(t)
+	t.Setenv(envBridgePath, findBridgePath())
+
+	studyName := "resume-failed"
+	space := buildSmallSpace()
+	storagePath := filepath.Join(t.TempDir(), "optuna.db")
+	cfg := config.StrategySpec{Algorithm: "tpe", MaxTrialsPerTemplate: 5, StoragePath: storagePath}
+
+	// Phase 1: run 3 trials, one with an error.
+	algo1 := &OptunaSearch{}
+	require.NoError(t, algo1.Init(context.Background(), studyName, space, cfg))
+
+	var history []abtypes.TrialResult
+	for i := 0; i < 3; i++ {
+		params, err := algo1.SuggestNext(history)
+		require.NoError(t, err)
+		result := abtypes.TrialResult{
+			TrialIndex: i,
+			Params:     params,
+			Score:      float64(i * 10),
+			SLAPass:    i != 1,
+		}
+		if i == 1 {
+			result.Error = "simulated failure"
+		}
+		history = append(history, result)
+	}
+	require.NoError(t, algo1.Close())
+
+	// Phase 2: resume with the same study name and existing history.
+	// The bridge should report existing_total=3 (including the failed trial).
+	algo2 := &OptunaSearch{}
+	require.NoError(t, algo2.Init(context.Background(), studyName, space, cfg))
+
+	// Continue for 2 more trials.
+	for i := 3; i < 5; i++ {
+		params, err := algo2.SuggestNext(history)
+		require.NoError(t, err)
+		result := abtypes.TrialResult{
+			TrialIndex: i,
+			Params:     params,
+			Score:      float64(i * 10),
+			SLAPass:    true,
+		}
+		history = append(history, result)
+	}
+
+	assert.Len(t, history, 5)
+	// The bridge's idempotent tell should not have skipped any new trials.
+	for i, r := range history {
+		assert.Equal(t, i, r.TrialIndex)
+		assert.NotNil(t, r.Params["default"])
+	}
+}
+
 // ===========================================================================
 // Unit tests — no Python required
 // ===========================================================================

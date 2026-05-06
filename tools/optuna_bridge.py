@@ -150,20 +150,20 @@ class StudyManager:
             space_size *= len(dist.choices)
         self.space_sizes[study_name] = space_size
 
-        existing_complete = sum(
-            1 for t in study.trials if t.state == TrialState.COMPLETE
+        existing_total = sum(
+            1 for t in study.trials if t.state != TrialState.RUNNING
         )
         logger.info(
-            "Initialized study %r: sampler=%s, %d complete trials, max=%d, space_size=%d",
+            "Initialized study %r: sampler=%s, %d total trials, max=%d, space_size=%d",
             study_name,
             sampler,
-            existing_complete,
+            existing_total,
             max_trials,
             space_size,
         )
         return {
             "status": "ok",
-            "existing_complete": existing_complete,
+            "existing_total": existing_total,
             "space_size": space_size,
         }
 
@@ -227,16 +227,33 @@ class StudyManager:
                 pending.set_user_attr("constraints", [constraint_value])
                 study.tell(pending, score)
             else:
-                # Fallback for resumed trials: set constraints directly via storage
-                # BEFORE tell, because constraints_func is evaluated inside tell's after_trial.
-                trial_id_in_storage = (
-                    study._storage.get_trial_id_from_study_id_trial_number(
-                        study._study_id, trial_id
+                # Resumed trial path: set constraints via storage internals BEFORE tell.
+                # This is required because constraints_func (used by TPE/NSGA-II samplers)
+                # is called inside tell()'s after_trial callback and needs user_attrs["constraints"].
+                #
+                # Optuna Issue #3640 confirms that cross-process ask-tell with constrained
+                # optimization requires restoring sampler state before tell. Since our bridge
+                # process persists across Go controller restarts, the sampler state is intact,
+                # but we lack the Trial object to set user_attrs via public API.
+                #
+                # Using _storage internals is a known limitation. If this breaks on future
+                # Optuna versions, the alternative is to pickle Trial objects on ask and
+                # restore them on tell, which requires significant architectural changes.
+                try:
+                    trial_id_in_storage = (
+                        study._storage.get_trial_id_from_study_id_trial_number(
+                            study._study_id, trial_id
+                        )
                     )
-                )
-                study._storage.set_trial_user_attr(
-                    trial_id_in_storage, "constraints", [constraint_value]
-                )
+                    study._storage.set_trial_user_attr(
+                        trial_id_in_storage, "constraints", [constraint_value]
+                    )
+                except AttributeError as e:
+                    raise RuntimeError(
+                        f"Optuna internal API changed: {e}. "
+                        f"This bridge requires Optuna 3.x/4.x storage internals. "
+                        f"Please report this issue with your Optuna version."
+                    ) from e
                 study.tell(trial_id, score, skip_if_finished=True)
 
             logger.info(

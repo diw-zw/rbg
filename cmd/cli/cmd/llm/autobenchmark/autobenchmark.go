@@ -51,8 +51,10 @@ to find the optimal configuration that maximizes throughput while meeting SLA co
 }
 
 // experimentToJobName converts an experiment name to the conventional Job name.
+// Uses sanitizeResourceName to ensure DNS-1123 compliance.
 func experimentToJobName(expName string) string {
-	jobName := fmt.Sprintf("ab-%s", strings.ToLower(expName))
+	safeName := sanitizeResourceName(expName)
+	jobName := fmt.Sprintf("ab-%s", safeName)
 	if len(jobName) > 63 {
 		jobName = jobName[:63]
 	}

@@ -20,4 +20,8 @@ const (
 	// AutoBenchmarkLabelKey is the label key used to tag all auto-benchmark
 	// resources (Jobs, ConfigMaps, and trial RBGs). The value is the experiment name.
 	AutoBenchmarkLabelKey = "rbg.workloads.x-k8s.io/auto-benchmark"
+
+	// AutoBenchmarkOriginalNameAnnotationKey is the annotation key used to store
+	// the original experiment name when the resource name is sanitized for DNS-1123 compliance.
+	AutoBenchmarkOriginalNameAnnotationKey = AutoBenchmarkLabelKey + "/original-name"
 )

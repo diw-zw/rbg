@@ -21,7 +21,9 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -55,6 +57,9 @@ type Controller struct {
 	timeout         time.Duration
 	rbgReadyTimeout time.Duration
 	trialTimeout    time.Duration
+
+	// sanitized experiment name for label values (DNS-1123 compliant)
+	expNameLabel string
 }
 
 // NewController creates a Controller from config.
@@ -90,6 +95,9 @@ func NewController(
 	rbgReady, _ := time.ParseDuration(cfg.Execution.RBGReadyTimeout)
 	trialTO, _ := time.ParseDuration(cfg.Execution.TrialTimeout)
 
+	// Sanitize experiment name for use as Kubernetes label value
+	expNameLabel := sanitizeLabelValue(cfg.Name)
+
 	return &Controller{
 		cfg:             cfg,
 		client:          c,
@@ -102,6 +110,7 @@ func NewController(
 		timeout:         timeout,
 		rbgReadyTimeout: rbgReady,
 		trialTimeout:    trialTO,
+		expNameLabel:    expNameLabel,
 	}, nil
 }
 
@@ -335,7 +344,11 @@ func (ctrl *Controller) executeTrial(
 	if trialRBG.Labels == nil {
 		trialRBG.Labels = make(map[string]string)
 	}
-	trialRBG.Labels[constant.AutoBenchmarkLabelKey] = ctrl.cfg.Name
+	trialRBG.Labels[constant.AutoBenchmarkLabelKey] = ctrl.expNameLabel
+	if trialRBG.Annotations == nil {
+		trialRBG.Annotations = make(map[string]string)
+	}
+	trialRBG.Annotations[constant.AutoBenchmarkOriginalNameAnnotationKey] = ctrl.cfg.Name
 
 	trialName := trialRBG.Name
 	defer func() {
@@ -578,4 +591,21 @@ func isRBGReady(rbg *v1alpha2.RoleBasedGroup) bool {
 		}
 	}
 	return false
+}
+
+// sanitizeLabelValue ensures a string is valid for use as a Kubernetes label value.
+// Label values must be 63 characters or less and contain only alphanumeric characters,
+// '-', '_', or '.'. This function truncates and sanitizes as needed.
+func sanitizeLabelValue(name string) string {
+	if len(name) > 63 {
+		name = name[:63]
+	}
+	// Replace invalid characters with '-'
+	invalidChars := regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+	name = invalidChars.ReplaceAllString(name, "-")
+	name = strings.Trim(name, "-")
+	if name == "" {
+		name = "default"
+	}
+	return name
 }

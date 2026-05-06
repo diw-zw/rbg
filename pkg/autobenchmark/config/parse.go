@@ -208,7 +208,7 @@ func validateSearchParam(role, name string, param SearchParam) error {
 		if param.Min == nil || param.Max == nil || param.Step == nil {
 			return fmt.Errorf("%s: range type requires min, max, and step", prefix)
 		}
-		if *param.Min >= *param.Max {
+		if *param.Min > *param.Max {
 			return fmt.Errorf("%s: min (%v) must be less than max (%v)", prefix, *param.Min, *param.Max)
 		}
 		if *param.Step <= 0 {

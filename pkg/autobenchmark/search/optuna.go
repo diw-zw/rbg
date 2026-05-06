@@ -39,6 +39,7 @@ const (
 	defaultBridgePath = "/tools/optuna_bridge.py"
 	envBridgePath     = "OPTUNA_BRIDGE_PATH"
 	envStoragePath    = "OPTUNA_STORAGE_PATH"
+	bridgeTimeout     = 30 * time.Second
 )
 
 // optunaSamplers lists all algorithm names backed by OptunaSearch.
@@ -87,16 +88,16 @@ type bridgeRequest struct {
 
 // bridgeResponse is the JSON message received from the Python bridge.
 type bridgeResponse struct {
-	Status           string                    `json:"status"`
-	Message          string                    `json:"message,omitempty"`
-	TrialID          int                       `json:"trial_id,omitempty"`
-	Params           map[string]map[string]any `json:"params,omitempty"`
-	Done             bool                      `json:"done,omitempty"`
-	Score            float64                   `json:"score,omitempty"`
-	ExistingComplete int                       `json:"existing_complete,omitempty"`
-	SpaceSize        int                       `json:"space_size,omitempty"`
-	Completed        int                       `json:"completed,omitempty"`
-	Skipped          bool                      `json:"skipped,omitempty"`
+	Status        string                    `json:"status"`
+	Message       string                    `json:"message,omitempty"`
+	TrialID       int                       `json:"trial_id,omitempty"`
+	Params        map[string]map[string]any `json:"params,omitempty"`
+	Done          bool                      `json:"done,omitempty"`
+	Score         float64                   `json:"score,omitempty"`
+	ExistingTotal int                       `json:"existing_total,omitempty"`
+	SpaceSize     int                       `json:"space_size,omitempty"`
+	Completed     int                       `json:"completed,omitempty"`
+	Skipped       bool                      `json:"skipped,omitempty"`
 }
 
 // Name returns the algorithm name.
@@ -150,17 +151,21 @@ func (o *OptunaSearch) Init(ctx context.Context, name string, space ExpandedSear
 	}
 
 	// Sync state from Optuna — accounts for trials from previous runs.
-	o.toldCount = resp.ExistingComplete
+	// ExistingTotal counts all non-RUNNING trials (COMPLETE + FAIL), matching
+	// the length of the history slice we will receive after a restart.
+	o.toldCount = resp.ExistingTotal
 	o.spaceSize = resp.SpaceSize
-	o.logger.Info("OptunaSearch initialized", "existingComplete", resp.ExistingComplete, "spaceSize", resp.SpaceSize)
+	o.logger.Info("OptunaSearch initialized", "existingTotal", resp.ExistingTotal, "spaceSize", resp.SpaceSize)
 	return nil
 }
 
 // SuggestNext tells Optuna about new trial results and asks for the next suggestion.
 func (o *OptunaSearch) SuggestNext(history []abtypes.TrialResult) (abtypes.RoleParamSet, error) {
 	// Tell Optuna about the last trial result (if any).
-	if o.lastTrialID >= 0 && o.toldCount < len(history) {
-		result := history[o.toldCount]
+	// After a restart, history contains all previous trials (COMPLETE+FAIL).
+	// We always tell the most recent history entry that hasn't been told yet.
+	if o.lastTrialID >= 0 && len(history) > o.toldCount {
+		result := history[len(history)-1]
 		req := bridgeRequest{
 			Action:    "tell",
 			StudyName: o.studyName,
@@ -176,7 +181,7 @@ func (o *OptunaSearch) SuggestNext(history []abtypes.TrialResult) (abtypes.RoleP
 		if resp.Status != "ok" {
 			return nil, fmt.Errorf("optuna tell failed: %s", resp.Message)
 		}
-		o.toldCount++
+		o.toldCount = len(history)
 		o.lastTrialID = -1
 	}
 
@@ -286,6 +291,8 @@ func (o *OptunaSearch) startProcess() error {
 
 // send writes a JSON request to the bridge and reads the JSON response.
 // A timeout guards against hangs if the Python process crashes or stalls.
+// On timeout, the bridge process is killed to avoid leaving a goroutine
+// blocked on o.scanner (bufio.Scanner is NOT safe for concurrent use).
 func (o *OptunaSearch) send(req bridgeRequest) (*bridgeResponse, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -324,8 +331,13 @@ func (o *OptunaSearch) send(req bridgeRequest) (*bridgeResponse, error) {
 	select {
 	case r := <-ch:
 		return r.resp, r.err
-	case <-time.After(30 * time.Second):
-		return nil, fmt.Errorf("read from bridge: timeout (process may be hung or crashed)")
+	case <-time.After(bridgeTimeout):
+		// Kill the bridge process to unblock the goroutine reading from scanner.
+		// This is safe because the process will be restarted on the next init.
+		if o.cmd != nil && o.cmd.Process != nil {
+			_ = o.cmd.Process.Kill()
+		}
+		return nil, fmt.Errorf("read from bridge: timeout (process killed, restart required)")
 	}
 }
 

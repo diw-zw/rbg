@@ -155,9 +155,15 @@ kubectl rbg llm auto-benchmark stop <experiment-name>
 ```yaml
 searchSpace:
   default:
-    gpuMemoryUtilization: [0.70, 0.80, 0.90, 0.95]
-    maxNumSeqs: [256, 512, 1024, 2048]
-    chunkedPrefillSize: [512, 2048, 8192]
+    gpuMemoryUtilization:
+      type: categorical
+      values: [0.70, 0.80, 0.90, 0.95]
+    maxNumSeqs:
+      type: categorical
+      values: [256, 512, 1024, 2048]
+    chunkedPrefillSize:
+      type: categorical
+      values: [512, 2048, 8192]
 ```
 
 Parameters are mapped to the serving engine's CLI flags automatically (see `mapper.go`).

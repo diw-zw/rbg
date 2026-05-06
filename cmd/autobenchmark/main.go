@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	rawzap "go.uber.org/zap"
@@ -90,7 +91,7 @@ func main() {
 			setupLog.Error(fmt.Errorf("--namespace is required or must run in-cluster"), "Namespace resolution failed")
 			os.Exit(1)
 		}
-		namespace = string(data)
+		namespace = strings.TrimSpace(string(data))
 	}
 
 	if err := run(configPath, namespace, dataDir); err != nil {

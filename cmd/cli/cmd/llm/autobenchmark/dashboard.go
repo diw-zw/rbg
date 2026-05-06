@@ -40,6 +40,7 @@ import (
 
 	"sigs.k8s.io/rbgs/cmd/cli/util"
 	"sigs.k8s.io/rbgs/pkg/autobenchmark/config"
+	"sigs.k8s.io/rbgs/pkg/autobenchmark/constant"
 )
 
 const (
@@ -100,6 +101,11 @@ func (o *dashboardOptions) run(ctx context.Context) error {
 		expName = o.name
 	}
 
+	// Validate experiment name for use as Kubernetes label value
+	if err := validateExpName(expName); err != nil {
+		return err
+	}
+
 	// Kubernetes client
 	clientset, err := util.GetK8SClientSet(o.cf)
 	if err != nil {
@@ -116,9 +122,14 @@ func (o *dashboardOptions) run(ctx context.Context) error {
 	deployName := fmt.Sprintf("abd-%s", safeName)
 	svcName := deployName
 
-	labels := map[string]string{
-		"app":        "auto-benchmark-dashboard",
-		"experiment": expName,
+	// Use sanitized name for selector labels to ensure DNS-1123 compliance
+	selectorLabels := map[string]string{
+		"app":                          "auto-benchmark-dashboard",
+		constant.AutoBenchmarkLabelKey: safeName,
+	}
+	// Store original name in annotations for display
+	annotations := map[string]string{
+		constant.AutoBenchmarkOriginalNameAnnotationKey: expName,
 	}
 
 	// --- Create Deployment ---
@@ -126,15 +137,16 @@ func (o *dashboardOptions) run(ctx context.Context) error {
 
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      deployName,
-			Namespace: namespace,
-			Labels:    labels,
+			Name:        deployName,
+			Namespace:   namespace,
+			Labels:      selectorLabels,
+			Annotations: annotations,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: int32Ptr(1),
-			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Selector: &metav1.LabelSelector{MatchLabels: selectorLabels},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				ObjectMeta: metav1.ObjectMeta{Labels: selectorLabels},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
@@ -189,12 +201,13 @@ func (o *dashboardOptions) run(ctx context.Context) error {
 
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      svcName,
-			Namespace: namespace,
-			Labels:    labels,
+			Name:        svcName,
+			Namespace:   namespace,
+			Labels:      selectorLabels,
+			Annotations: annotations,
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: labels,
+			Selector: selectorLabels,
 			Ports: []corev1.ServicePort{
 				{
 					Port:       dashboardPort,

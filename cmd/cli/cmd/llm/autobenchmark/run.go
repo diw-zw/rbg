@@ -100,6 +100,11 @@ func (o *runOptions) run(ctx context.Context) error {
 	}
 
 	expName := cfg.Name
+	if err := validateExpName(expName); err != nil {
+		return err
+	}
+	// Sanitize the experiment name for Kubernetes resource naming (DNS-1123)
+	safeName := sanitizeResourceName(expName)
 
 	clientset, err := util.GetK8SClientSet(o.cf)
 	if err != nil {
@@ -132,7 +137,7 @@ func (o *runOptions) run(ctx context.Context) error {
 	cmData["config.yaml"] = string(configYAML)
 
 	// Create ConfigMap
-	cmName := fmt.Sprintf("ab-%s-config", strings.ToLower(expName))
+	cmName := fmt.Sprintf("ab-%s-config", safeName)
 	if len(cmName) > 63 {
 		cmName = cmName[:63]
 	}
@@ -142,7 +147,10 @@ func (o *runOptions) run(ctx context.Context) error {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cmName,
 			Namespace: namespace,
-			Labels:    map[string]string{constant.AutoBenchmarkLabelKey: expName},
+			Labels:    map[string]string{constant.AutoBenchmarkLabelKey: safeName},
+			Annotations: map[string]string{
+				constant.AutoBenchmarkOriginalNameAnnotationKey: expName,
+			},
 		},
 		Data: cmData,
 	}
@@ -153,7 +161,7 @@ func (o *runOptions) run(ctx context.Context) error {
 	fmt.Printf("Created ConfigMap %q\n", cmName)
 
 	// Create controller Job
-	jobName := fmt.Sprintf("ab-%s", strings.ToLower(expName))
+	jobName := fmt.Sprintf("ab-%s", safeName)
 	if len(jobName) > 63 {
 		jobName = jobName[:63]
 	}
@@ -167,7 +175,10 @@ func (o *runOptions) run(ctx context.Context) error {
 			Name:      jobName,
 			Namespace: namespace,
 			Labels: map[string]string{
-				constant.AutoBenchmarkLabelKey: expName,
+				constant.AutoBenchmarkLabelKey: safeName,
+			},
+			Annotations: map[string]string{
+				constant.AutoBenchmarkOriginalNameAnnotationKey: expName,
 			},
 		},
 		Spec: batchv1.JobSpec{
@@ -236,6 +247,24 @@ func (o *runOptions) run(ctx context.Context) error {
 }
 
 var invalidCMKeyChars = regexp.MustCompile(`[^-._a-zA-Z0-9]+`)
+
+// validateExpName validates the experiment name for use as a Kubernetes label value.
+// Label values must be 63 characters or less and contain only alphanumeric characters,
+// '-', '_', or '.'.
+func validateExpName(name string) error {
+	if name == "" {
+		return fmt.Errorf("experiment name cannot be empty")
+	}
+	if len(name) > 63 {
+		return fmt.Errorf("experiment name %q exceeds 63 character limit (length: %d)", name, len(name))
+	}
+	// Kubernetes label values: alphanumeric, '-', '_', '.'
+	validLabelValueChars := regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+	if !validLabelValueChars.MatchString(name) {
+		return fmt.Errorf("experiment name %q contains invalid characters; only alphanumeric, '-', '_', '.' are allowed", name)
+	}
+	return nil
+}
 
 func sanitizeCMKey(name string) string {
 	name = strings.ToLower(name)
