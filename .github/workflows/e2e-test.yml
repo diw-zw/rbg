@@ -294,8 +294,25 @@ jobs:
           kubectl wait --for=condition=ready pod -l app=volcano-controller -n volcano-system --timeout=300s
           kubectl get pods -n volcano-system
 
-      - name: Deploy controller using manifest
+      - name: Validate and deploy manifests
         run: |
+          # Validate CRD conversion webhook configuration in committed manifests
+          echo "Validating CRD conversion webhook configuration..."
+
+          CONV_COUNT=$(grep -c "conversion:" deploy/kubectl/manifests.yaml || echo "0")
+          WEBHOOK_COUNT=$(grep -c "strategy: Webhook" deploy/kubectl/manifests.yaml || echo "0")
+
+          if [ "$CONV_COUNT" -lt 2 ] || [ "$WEBHOOK_COUNT" -lt 2 ]; then
+            echo "::error::CRDs missing conversion webhook configuration!"
+            echo "Expected 2 conversion webhook entries (for RoleBasedGroup and RoleBasedGroupSet)"
+            echo "Found: conversion=$CONV_COUNT, webhook strategy=$WEBHOOK_COUNT"
+            echo ""
+            echo "Please run 'make build-installer' locally and commit the updated manifests."
+            exit 1
+          fi
+
+          echo "Manifests validation passed - CRDs contain correct conversion webhook configuration"
+
           # Apply manifests with server-side apply (required for large CRD annotations)
           kubectl apply --server-side -f deploy/kubectl/manifests.yaml
 
