@@ -431,24 +431,16 @@ func (r *RoleInstanceSetReconciler) ConstructRoleStatus(
 	ctx context.Context,
 	rbg *workloadsv1alpha2.RoleBasedGroup,
 	role *workloadsv1alpha2.RoleSpec,
-) (workloadsv1alpha2.RoleStatus, bool, error) {
+) (workloadsv1alpha2.RoleStatus, error) {
 	roleInstanceSet := &workloadsv1alpha2.RoleInstanceSet{}
 	if err := r.client.Get(
 		ctx, types.NamespacedName{Name: rbg.GetWorkloadName(role), Namespace: rbg.Namespace}, roleInstanceSet,
 	); err != nil {
-		return workloadsv1alpha2.RoleStatus{Name: role.Name}, false, err
+		return workloadsv1alpha2.RoleStatus{Name: role.Name}, err
 	}
-
-	if roleInstanceSet.Status.ObservedGeneration < roleInstanceSet.Generation {
-		err := fmt.Errorf("roleInstanceSet generation not equal to observed generation")
-		return workloadsv1alpha2.RoleStatus{Name: role.Name}, false, err
-	}
-
-	status, updateStatus := ConstructRoleStatue(rbg, role,
-		*roleInstanceSet.Spec.Replicas,
-		roleInstanceSet.Status.ReadyReplicas,
-		roleInstanceSet.Status.UpdatedReplicas)
-	return status, updateStatus, nil
+	return ConstructWorkloadRoleStatus(ctx, rbg, role,
+		*roleInstanceSet.Spec.Replicas, roleInstanceSet.Status.ReadyReplicas, roleInstanceSet.Status.UpdatedReplicas,
+		roleInstanceSet.Generation, roleInstanceSet.Status.ObservedGeneration), nil
 }
 
 func (r *RoleInstanceSetReconciler) CheckWorkloadReady(

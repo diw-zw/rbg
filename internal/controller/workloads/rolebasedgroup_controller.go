@@ -615,7 +615,6 @@ func (r *RoleBasedGroupReconciler) constructAndUpdateRoleStatuses(
 	ctx context.Context,
 	rbg *workloadsv1alpha2.RoleBasedGroup,
 ) ([]workloadsv1alpha2.RoleStatus, error) {
-	var updateStatus bool
 	roleStatuses := make([]workloadsv1alpha2.RoleStatus, 0, len(rbg.Spec.Roles))
 
 	for _, role := range rbg.Spec.Roles {
@@ -632,7 +631,7 @@ func (r *RoleBasedGroupReconciler) constructAndUpdateRoleStatuses(
 			return nil, err
 		}
 
-		roleStatus, updateRoleStatus, err := reconciler.ConstructRoleStatus(roleCtx, rbg, &role)
+		roleStatus, err := reconciler.ConstructRoleStatus(roleCtx, rbg, &role)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				r.recorder.Eventf(
@@ -642,28 +641,20 @@ func (r *RoleBasedGroupReconciler) constructAndUpdateRoleStatuses(
 				return nil, err
 			}
 		}
-		updateStatus = updateStatus || updateRoleStatus
 		roleStatuses = append(roleStatuses, roleStatus)
 	}
 
-	// Also trigger an update if the Ready condition is missing, which can happen when
-	// the pod controller patches only the RestartInProgress condition and the RBG
-	// controller has not yet re-evaluated readiness (e.g. after a pod restart/recreate).
-	readyConditionMissing := !apimeta.IsStatusConditionPresentAndEqual(
-		rbg.Status.Conditions, string(workloadsv1alpha2.RoleBasedGroupReady), metav1.ConditionTrue,
-	) && !apimeta.IsStatusConditionPresentAndEqual(
-		rbg.Status.Conditions, string(workloadsv1alpha2.RoleBasedGroupReady), metav1.ConditionFalse,
-	)
-
-	// Update the status based on the observed role statuses.
-	if updateStatus || readyConditionMissing {
-		if err := r.updateRBGStatus(ctx, rbg, roleStatuses); err != nil {
-			r.recorder.Eventf(
-				rbg, corev1.EventTypeWarning, FailedUpdateStatus,
-				"Failed to update status for %s: %v", rbg.Name, err,
-			)
-			return nil, err
-		}
+	// Always update the RBG status to ensure conditions managed by
+	// other controllers (e.g. RestartInProgress set by the pod controller)
+	// are preserved. The SSA patch with Force=true and map-type
+	// conditions (x-kubernetes-list-type: map) is efficient: it only
+	// touches fields that have actually changed.
+	if err := r.updateRBGStatus(ctx, rbg, roleStatuses); err != nil {
+		r.recorder.Eventf(
+			rbg, corev1.EventTypeWarning, FailedUpdateStatus,
+			"Failed to update status for %s: %v", rbg.Name, err,
+		)
+		return nil, err
 	}
 
 	return roleStatuses, nil
@@ -701,6 +692,11 @@ func (r *RoleBasedGroupReconciler) deleteOrphanRoles(ctx context.Context, rbg *w
 func (r *RoleBasedGroupReconciler) updateRBGStatus(
 	ctx context.Context, rbg *workloadsv1alpha2.RoleBasedGroup, roleStatuses []workloadsv1alpha2.RoleStatus,
 ) error {
+	// Capture current status before mutation to avoid unnecessary SSA patches.
+	// Since constructAndUpdateRoleStatuses now calls this on every reconcile,
+	// comparing old vs new status lets us skip redundant API calls.
+	oldStatus := *rbg.Status.DeepCopy()
+
 	// update ready condition
 	var rbgReady = true
 	statusMap := make(map[string]workloadsv1alpha2.RoleStatus, len(roleStatuses))
@@ -759,26 +755,35 @@ func (r *RoleBasedGroupReconciler) updateRBGStatus(
 	}
 
 	// CRITICAL: Preserve the RestartInProgress condition managed by the pod controller.
-	// We check BOTH the cached rbg (which may already have it from the informer) AND
-	// the latest RBG from the API server. This double-check provides defense-in-depth
-	// against the condition being lost due to SSA with Force=true.
-	restartCond := apimeta.FindStatusCondition(
-		rbg.Status.Conditions, string(workloadsv1alpha2.RoleBasedGroupRestartInProgress),
-	)
-	if restartCond == nil {
-		// Not in cache, fetch from API server (bypass informer cache).
-		latestRBG := &workloadsv1alpha2.RoleBasedGroup{}
-		if err := r.apiReader.Get(ctx, types.NamespacedName{Name: rbg.Name, Namespace: rbg.Namespace}, latestRBG); err != nil {
-			logger := log.FromContext(ctx)
-			logger.Error(err, "Failed to get latest RBG from API server for status update")
-			return err
+	// This condition is written by PodReconciler via RetryOnConflict+UpdateStatus (not SSA),
+	// so the informer cache may be stale. Always read from the API server to get the
+	// authoritative value and avoid overwriting a False→True transition back to True.
+	latestRBG := &workloadsv1alpha2.RoleBasedGroup{}
+	if err := r.apiReader.Get(ctx, types.NamespacedName{Name: rbg.Name, Namespace: rbg.Namespace}, latestRBG); err != nil {
+		logger := log.FromContext(ctx)
+		logger.Error(err, "Failed to get latest RBG from API server, falling back to cache for RestartInProgress")
+		// Fall back to cached condition if API server is unavailable
+		restartCond := apimeta.FindStatusCondition(
+			rbg.Status.Conditions, string(workloadsv1alpha2.RoleBasedGroupRestartInProgress),
+		)
+		if restartCond != nil {
+			apimeta.SetStatusCondition(&rbg.Status.Conditions, *restartCond)
 		}
-		restartCond = apimeta.FindStatusCondition(
+	} else {
+		restartCond := apimeta.FindStatusCondition(
 			latestRBG.Status.Conditions, string(workloadsv1alpha2.RoleBasedGroupRestartInProgress),
 		)
+		if restartCond != nil {
+			apimeta.SetStatusCondition(&rbg.Status.Conditions, *restartCond)
+		}
 	}
-	if restartCond != nil {
-		apimeta.SetStatusCondition(&rbg.Status.Conditions, *restartCond)
+
+	// Skip SSA patch if status hasn't changed. This avoids unnecessary API calls
+	// and reduces load on the API server, especially important now that
+	// constructAndUpdateRoleStatuses calls this method on every reconcile.
+	if reflect.DeepEqual(oldStatus, rbg.Status) {
+		log.FromContext(ctx).V(2).Info("RBG status unchanged, skipping SSA patch")
+		return nil
 	}
 
 	// update rbg status using SSA patch.

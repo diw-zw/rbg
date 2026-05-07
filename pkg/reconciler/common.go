@@ -33,8 +33,7 @@ import (
 	workloadsv1alpha2 "sigs.k8s.io/rbgs/api/workloads/v1alpha2"
 )
 
-func ConstructRoleStatue(rbg *workloadsv1alpha2.RoleBasedGroup, role *workloadsv1alpha2.RoleSpec, currentReplicas, currentReady, updatedReplicas int32) (workloadsv1alpha2.RoleStatus, bool) {
-	updateStatus := false
+func ConstructRoleStatue(rbg *workloadsv1alpha2.RoleBasedGroup, role *workloadsv1alpha2.RoleSpec, currentReplicas, currentReady, updatedReplicas int32) workloadsv1alpha2.RoleStatus {
 	status, found := rbg.GetRoleStatus(role.Name)
 	if !found || status.Replicas != currentReplicas ||
 		status.ReadyReplicas != currentReady ||
@@ -45,9 +44,40 @@ func ConstructRoleStatue(rbg *workloadsv1alpha2.RoleBasedGroup, role *workloadsv
 			ReadyReplicas:   currentReady,
 			UpdatedReplicas: updatedReplicas,
 		}
-		updateStatus = true
 	}
-	return status, updateStatus
+	return status
+}
+
+// ConstructWorkloadRoleStatus handles the common pattern of constructing a role status
+// from a workload that may not have observed the latest generation yet. If the
+// workload's controller hasn't observed the latest generation, it returns an empty
+// status (don't treat this as an error, otherwise constructAndUpdateRoleStatuses
+// would bail out before calling updateRBGStatus). Otherwise it delegates to
+// ConstructRoleStatue.
+func ConstructWorkloadRoleStatus(
+	ctx context.Context,
+	rbg *workloadsv1alpha2.RoleBasedGroup,
+	role *workloadsv1alpha2.RoleSpec,
+	replicas, readyReplicas, updatedReplicas int32,
+	generation, observedGeneration int64,
+) workloadsv1alpha2.RoleStatus {
+	if observedGeneration < generation {
+		// Don't return a zeroed RoleStatus here: doing so would overwrite the
+		// previously recorded replicas/readyReplicas with zeros in updateRBGStatus,
+		// causing transient but incorrect status flickering. Instead, return the
+		// last known status from RBG to preserve the current observed state.
+		logger := log.FromContext(ctx)
+		logger.V(1).Info("workload status not yet observed, preserving last known status for this role",
+			"role", role.Name,
+			"generation", generation,
+			"observedGeneration", observedGeneration,
+		)
+		if status, found := rbg.GetRoleStatus(role.Name); found {
+			return status
+		}
+		return workloadsv1alpha2.RoleStatus{Name: role.Name}
+	}
+	return ConstructRoleStatue(rbg, role, replicas, readyReplicas, updatedReplicas)
 }
 
 func CleanupOrphanedObjs(ctx context.Context, c client.Client, rbg *workloadsv1alpha2.RoleBasedGroup, gvk schema.GroupVersionKind) error {

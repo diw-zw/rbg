@@ -509,24 +509,16 @@ func (r *StatefulSetReconciler) ConstructRoleStatus(
 	ctx context.Context,
 	rbg *workloadsv1alpha2.RoleBasedGroup,
 	role *workloadsv1alpha2.RoleSpec,
-) (workloadsv1alpha2.RoleStatus, bool, error) {
+) (workloadsv1alpha2.RoleStatus, error) {
 	sts := &appsv1.StatefulSet{}
 	if err := r.client.Get(
 		ctx, types.NamespacedName{Name: rbg.GetWorkloadName(role), Namespace: rbg.Namespace}, sts,
 	); err != nil {
-		return workloadsv1alpha2.RoleStatus{Name: role.Name}, false, err
+		return workloadsv1alpha2.RoleStatus{Name: role.Name}, err
 	}
-
-	if sts.Status.ObservedGeneration < sts.Generation {
-		err := fmt.Errorf("sts generation not equal to observed generation")
-		return workloadsv1alpha2.RoleStatus{Name: role.Name}, false, err
-	}
-
-	status, updateStatus := ConstructRoleStatue(rbg, role,
-		*sts.Spec.Replicas,
-		sts.Status.ReadyReplicas,
-		sts.Status.UpdatedReplicas)
-	return status, updateStatus, nil
+	return ConstructWorkloadRoleStatus(ctx, rbg, role,
+		*sts.Spec.Replicas, sts.Status.ReadyReplicas, sts.Status.UpdatedReplicas,
+		sts.Generation, sts.Status.ObservedGeneration), nil
 }
 
 func (r *StatefulSetReconciler) CheckWorkloadReady(

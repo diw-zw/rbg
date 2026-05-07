@@ -221,37 +221,17 @@ func (r *DeploymentReconciler) ConstructRoleStatus(
 	ctx context.Context,
 	rbg *workloadsv1alpha2.RoleBasedGroup,
 	role *workloadsv1alpha2.RoleSpec,
-) (workloadsv1alpha2.RoleStatus, bool, error) {
-	updateStatus := false
+) (workloadsv1alpha2.RoleStatus, error) {
 	deploy := &appsv1.Deployment{}
 	if err := r.client.Get(
 		ctx, types.NamespacedName{Name: rbg.GetWorkloadName(role), Namespace: rbg.Namespace}, deploy,
 	); err != nil {
-		return workloadsv1alpha2.RoleStatus{Name: role.Name}, false, err
+		return workloadsv1alpha2.RoleStatus{Name: role.Name}, err
 	}
 
-	if deploy.Status.ObservedGeneration < deploy.Generation {
-		err := fmt.Errorf("role(%s) workload generation not equal to observed generation", role.Name)
-		return workloadsv1alpha2.RoleStatus{Name: role.Name}, false, err
-	}
-
-	currentReplicas := *deploy.Spec.Replicas
-	currentReady := deploy.Status.ReadyReplicas
-	updatedReplicas := deploy.Status.UpdatedReplicas
-	status, found := rbg.GetRoleStatus(role.Name)
-	if !found || status.Replicas != currentReplicas ||
-		status.ReadyReplicas != currentReady ||
-		status.UpdatedReplicas != updatedReplicas {
-		status = workloadsv1alpha2.RoleStatus{
-			Name:            role.Name,
-			Replicas:        currentReplicas,
-			ReadyReplicas:   currentReady,
-			UpdatedReplicas: updatedReplicas,
-		}
-		updateStatus = true
-	}
-
-	return status, updateStatus, nil
+	return ConstructWorkloadRoleStatus(ctx, rbg, role,
+		*deploy.Spec.Replicas, deploy.Status.ReadyReplicas, deploy.Status.UpdatedReplicas,
+		deploy.Generation, deploy.Status.ObservedGeneration), nil
 }
 
 func (r *DeploymentReconciler) CheckWorkloadReady(
