@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Bar } from 'react-chartjs-2'
 import {
   Chart as ChartJS,
@@ -11,7 +11,7 @@ import {
 } from 'chart.js'
 import type { TrialResult, ParamSet } from '@/types'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { formatNumber, computeScoreRatio, scoreColorToHsl } from '@/lib/utils'
+import { formatNumber, computeScoreRatio, scoreColorToHsl, isSlaPass } from '@/lib/utils'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
@@ -25,23 +25,35 @@ function paramNameLabel(name: string): string {
 }
 
 export function ParamComparison({ trials, optimize }: ParamComparisonProps) {
+  const [sortBy, setSortBy] = useState<'id' | 'score'>('id')
+
+  const sortedTrials = useMemo(() => {
+    const sorted = [...trials]
+    if (sortBy === 'score') {
+      sorted.sort((a, b) => b.score - a.score)
+    } else {
+      sorted.sort((a, b) => a.trialIndex - b.trialIndex)
+    }
+    return sorted
+  }, [trials, sortBy])
+
   const allParams = useMemo(() => {
     const names = new Set<string>()
-    trials.forEach(t => {
+    sortedTrials.forEach(t => {
       const p = t.params.default || {}
       Object.keys(p).forEach(k => names.add(k))
     })
     return Array.from(names)
-  }, [trials])
+  }, [sortedTrials])
 
-  const scores = useMemo(() => trials.map(t => t.score), [trials])
+  const scores = useMemo(() => sortedTrials.map(t => t.score), [sortedTrials])
 
   const colorMap = useMemo(() => {
-    return trials.map(t => {
+    return sortedTrials.map(t => {
       const ratio = computeScoreRatio(scores, t.score, optimize)
-      return scoreColorToHsl(ratio, t.slaPass)
+      return scoreColorToHsl(ratio, isSlaPass(t.constraints))
     })
-  }, [trials, scores, optimize])
+  }, [sortedTrials, scores, optimize])
 
   const paramNames = allParams
   if (paramNames.length === 0) {
@@ -56,16 +68,40 @@ export function ParamComparison({ trials, optimize }: ParamComparisonProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Parameter Impact</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle>Parameter Impact</CardTitle>
+          <div className="flex items-center gap-1 bg-secondary/50 rounded-md p-0.5">
+            <button
+              onClick={() => setSortBy('id')}
+              className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                sortBy === 'id'
+                  ? 'bg-primary/10 text-primary font-medium'
+                  : 'hover:bg-accent text-muted-foreground'
+              }`}
+            >
+              By Trial ID
+            </button>
+            <button
+              onClick={() => setSortBy('score')}
+              className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                sortBy === 'score'
+                  ? 'bg-primary/10 text-primary font-medium'
+                  : 'hover:bg-accent text-muted-foreground'
+              }`}
+            >
+              By Score
+            </button>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(paramNames.length, 2)}, 1fr)` }}>
           {paramNames.map(name => {
             const chartData = {
-              labels: trials.map(t => `T${t.trialIndex}`),
+              labels: sortedTrials.map(t => `T${t.trialIndex}`),
               datasets: [{
                 label: paramNameLabel(name),
-                data: trials.map(t => {
+                data: sortedTrials.map(t => {
                   const p = t.params.default || {}
                   return typeof p[name] === 'number' ? p[name] as number : 0
                 }),
@@ -96,7 +132,7 @@ export function ParamComparison({ trials, optimize }: ParamComparisonProps) {
                       tooltip: {
                         callbacks: {
                           label: (ctx) => {
-                            const t = trials[ctx.dataIndex]
+                            const t = sortedTrials[ctx.dataIndex]
                             const y = ctx.parsed.y ?? 0
                             const score = t.score ?? 0
                             return `${paramNameLabel(name)}: ${formatNumber(y)} | Score: ${formatNumber(score)}`
