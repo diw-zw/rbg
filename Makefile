@@ -5,12 +5,14 @@ RBG_CONTROLLER_IMG ?= ${IMG_REPO}/rbgs-controller
 CRD_UPGRADER_IMG ?= ${IMG_REPO}/rbgs-upgrade-crd
 PATIO_IMG ?= ${IMG_REPO}/rbgs-patio-runtime
 BENCHMARK_DASHBOARD_IMG ?= ${IMG_REPO}/rbgs-benchmark-dashboard
+AUTO_BENCHMARK_DASHBOARD_IMG ?= ${IMG_REPO}/rbgs-auto-benchmark-dashboard
 BENCHMARK_TOOL_GENAI_IMG ?= ${IMG_REPO}/rbgs-benchmark-tool-genai
 
 RBG_CONTROLLER_DOCKERFILE ?= Dockerfile
 CRD_UPGRADER_DOCKERFILE ?= tools/crd-upgrade/Dockerfile
 PATIO_DOCKERFILE ?= python/patio/Dockerfile
 BENCHMARK_DASHBOARD_DOCKERFILE ?= cmd/cli/cmd/llm/benchmark/dashboard/Dockerfile
+AUTO_BENCHMARK_DASHBOARD_DOCKERFILE ?= ui/benchmark-viewer/Dockerfile
 BENCHMARK_TOOL_GENAI_DOCKERFILE ?= tools/benchmark/genai/Dockerfile
 
 VERSION ?= v0.7.0
@@ -131,12 +133,14 @@ copyright-fix: ## Add copyright headers to changed Go files against BASE_REF (de
 DOCKER_BUILD := docker-build-controller
 DOCKER_BUILD += docker-build-crd-upgrader
 DOCKER_BUILD_BENCHMARK := docker-build-benchmark-dashboard
+DOCKER_BUILD_BENCHMARK += docker-build-auto-benchmark-dashboard
 DOCKER_BUILD_BENCHMARK += docker-build-benchmark-tool-genai
 
 # Push docker images
 DOCKER_PUSH := docker-push-controller
 DOCKER_PUSH += docker-push-crd-upgrader
 DOCKER_PUSH_BENCHMARK := docker-push-benchmark-dashboard
+DOCKER_PUSH_BENCHMARK += docker-push-auto-benchmark-dashboard
 DOCKER_PUSH_BENCHMARK += docker-push-benchmark-tool-genai
 
 GOPROXY    ?=
@@ -224,6 +228,14 @@ docker-build-benchmark-dashboard: ## Build docker image for benchmark-dashboard
 .PHONY: docker-push-benchmark-dashboard
 docker-push-benchmark-dashboard: ## Push docker image for benchmark-dashboard
 	$(CONTAINER_TOOL) push ${BENCHMARK_DASHBOARD_IMG}:${TAG}
+
+.PHONY: docker-build-auto-benchmark-dashboard
+docker-build-auto-benchmark-dashboard: ## Build docker image for auto-benchmark-dashboard (React UI)
+	cd ui/benchmark-viewer && $(CONTAINER_TOOL) build -f Dockerfile -t ${AUTO_BENCHMARK_DASHBOARD_IMG}:${TAG} .
+
+.PHONY: docker-push-auto-benchmark-dashboard
+docker-push-auto-benchmark-dashboard: docker-build-auto-benchmark-dashboard ## Push docker image for auto-benchmark-dashboard
+	$(CONTAINER_TOOL) push ${AUTO_BENCHMARK_DASHBOARD_IMG}:${TAG}
 
 .PHONY: docker-build-benchmark-tool-genai
 docker-build-benchmark-tool-genai: ## Build docker image for benchmark benchmark-tool (genai-bench)
