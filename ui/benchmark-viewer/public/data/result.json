@@ -1,16 +1,15 @@
 {
-  "experimentId": "new-op",
+  "experimentId": "pow2-cfg",
   "status": {
-    "startTime": "2026-05-06T12:39:45.999870089Z",
-    "endTime": "2026-05-06T16:05:51.710042869Z",
-    "duration": "3h26m5.710172896s",
+    "startTime": "2026-05-07T07:10:11.158844056Z",
+    "endTime": "0001-01-01T00:00:00Z",
     "numTemplates": 1,
-    "totalTrials": 17,
-    "numSLAPass": 16,
+    "totalTrials": 13,
+    "numSLAPass": 12,
     "numSLAFail": 1
   },
   "config": {
-    "name": "new-op",
+    "name": "pow2-cfg",
     "backend": "sglang",
     "algorithm": "tpe",
     "optimize": "outputThroughput",
@@ -29,7 +28,6 @@
       256
     ],
     "maxTrialsPerTemplate": 20,
-    "earlyStopPatience": 5,
     "timeout": "4h",
     "templates": [
       "single"
@@ -37,30 +35,20 @@
     "searchSpace": {
       "default": {
         "chunkedPrefillSize": {
-          "type": "categorical",
-          "values": [
-            512,
-            2048,
-            8192
-          ]
+          "type": "pow2",
+          "min": 512,
+          "max": 8192
         },
         "gpuMemoryUtilization": {
-          "type": "categorical",
-          "values": [
-            0.7,
-            0.8,
-            0.9,
-            0.95
-          ]
+          "type": "float",
+          "min": 0.7,
+          "max": 0.95,
+          "step": 0.05
         },
         "maxNumSeqs": {
-          "type": "categorical",
-          "values": [
-            256,
-            512,
-            1024,
-            2048
-          ]
+          "type": "pow2",
+          "min": 256,
+          "max": 2048
         },
         "schedulePolicy": {
           "type": "categorical",
@@ -76,360 +64,307 @@
   "templates": [
     {
       "name": "single",
-      "bestTrial": {
-        "trialIndex": 11,
-        "templateName": "single",
-        "params": {
-          "default": {
-            "chunkedPrefillSize": 512,
-            "gpuMemoryUtilization": 0.8,
-            "maxNumSeqs": 2048,
-            "schedulePolicy": "random"
-          }
-        },
-        "metrics": {
-          "ttftP50": 8.072385259903967,
-          "ttftP99": 44.64059692047542,
-          "tpotP50": 0.06627290609189898,
-          "tpotP99": 7.673958030603829,
-          "outputThroughput": 864.3568736327699,
-          "inputThroughput": 243.75225364638183,
-          "totalThroughput": 1108.1091272791518,
-          "requestsPerSecond": 0.5382231395568419,
-          "errorRate": 0,
-          "numCompletedRequests": 291,
-          "numErrorRequests": 0,
-          "numRequests": 291
-        },
-        "constraints": [
-          0,
-          0,
-          0
-        ],
-        "score": 864.3568736327699,
-        "duration": "11m50.250181445s",
-        "startTime": "2026-05-06T14:54:48.506399648Z",
-        "endTime": "2026-05-06T15:06:38.756581033Z"
-      },
       "trials": [
         {
           "trialIndex": 0,
           "templateName": "single",
           "params": {
             "default": {
-              "chunkedPrefillSize": 512,
+              "chunkedPrefillSize": 4096,
               "gpuMemoryUtilization": 0.95,
-              "maxNumSeqs": 2048,
-              "schedulePolicy": "random"
+              "maxNumSeqs": 512,
+              "schedulePolicy": "lpm"
             }
           },
           "metrics": {
-            "ttftP50": 9.946616436820477,
-            "ttftP99": 29.341356657426676,
-            "tpotP50": 0.08213470334762052,
-            "tpotP99": 17.440310014085846,
-            "outputThroughput": 717.6685177058381,
-            "inputThroughput": 227.4242452369093,
-            "totalThroughput": 945.0927629427475,
-            "requestsPerSecond": 0.4808630736908679,
+            "ttftP50": 10.993628622032702,
+            "ttftP99": 18.721240020543338,
+            "tpotP50": 0.9969731436285656,
+            "tpotP99": 12.262875941470263,
+            "outputThroughput": 524.3395388293504,
+            "inputThroughput": 189.1652090243915,
+            "totalThroughput": 713.5047478537421,
+            "requestsPerSecond": 0.36988734337796075,
             "errorRate": 0,
-            "numCompletedRequests": 260,
-            "numErrorRequests": 0,
-            "numRequests": 260
+            "numCompletedRequests": 178,
+            "numErrorRequests": 537,
+            "numRequests": 715
           },
           "constraints": [
             0,
-            2.4403100140858456,
+            0,
             0
           ],
-          "score": 717.6685177058381,
-          "duration": "11m24.525178892s",
-          "startTime": "2026-05-06T12:39:46.379149475Z",
-          "endTime": "2026-05-06T12:51:10.904328416Z"
+          "score": 524.3395388293504,
+          "duration": "9m27.993571612s",
+          "startTime": "2026-05-07T07:10:11.539837998Z",
+          "endTime": "2026-05-07T07:19:39.533409655Z"
         },
         {
           "trialIndex": 1,
           "templateName": "single",
           "params": {
             "default": {
-              "chunkedPrefillSize": 512,
-              "gpuMemoryUtilization": 0.8,
-              "maxNumSeqs": 1024,
+              "chunkedPrefillSize": 2048,
+              "gpuMemoryUtilization": 0.7,
+              "maxNumSeqs": 256,
               "schedulePolicy": "lpm"
             }
           },
           "metrics": {
-            "ttftP50": 8.992001323960721,
-            "ttftP99": 44.45888449022532,
-            "tpotP50": 0.06646432410993258,
-            "tpotP99": 9.088209342802875,
-            "outputThroughput": 827.8863667836827,
-            "inputThroughput": 245.7322329314246,
-            "totalThroughput": 1073.6185997151072,
-            "requestsPerSecond": 0.5306158960020153,
+            "ttftP50": 6.813600951805711,
+            "ttftP99": 149.93503828472456,
+            "tpotP50": 0.05442332022230528,
+            "tpotP99": 5.8148917387705215,
+            "outputThroughput": 836.5147913337795,
+            "inputThroughput": 235.08642418802052,
+            "totalThroughput": 1071.6012155218002,
+            "requestsPerSecond": 0.5160355296426592,
             "errorRate": 0,
-            "numCompletedRequests": 287,
+            "numCompletedRequests": 279,
             "numErrorRequests": 0,
-            "numRequests": 287
+            "numRequests": 279
           },
           "constraints": [
             0,
             0,
             0
           ],
-          "score": 827.8863667836827,
-          "duration": "11m50.927670223s",
-          "startTime": "2026-05-06T12:51:11.017421109Z",
-          "endTime": "2026-05-06T13:03:01.945091327Z"
+          "score": 836.5147913337795,
+          "duration": "12m10.638706974s",
+          "startTime": "2026-05-07T07:19:39.671270158Z",
+          "endTime": "2026-05-07T07:31:50.309977132Z"
         },
         {
           "trialIndex": 2,
           "templateName": "single",
           "params": {
             "default": {
-              "chunkedPrefillSize": 2048,
-              "gpuMemoryUtilization": 0.9,
-              "maxNumSeqs": 1024,
-              "schedulePolicy": "random"
+              "chunkedPrefillSize": 8192,
+              "gpuMemoryUtilization": 0.7,
+              "maxNumSeqs": 2048,
+              "schedulePolicy": "lpm"
             }
           },
           "metrics": {
-            "ttftP50": 6.99197383900173,
-            "ttftP99": 37.74449320863931,
-            "tpotP50": 0.07579586027101748,
-            "tpotP99": 13.143127454444766,
-            "outputThroughput": 773.2479200305501,
-            "inputThroughput": 228.44014187007244,
-            "totalThroughput": 1001.6880619006224,
-            "requestsPerSecond": 0.5067767789472837,
+            "ttftP50": 6.228850197978318,
+            "ttftP99": 153.35343268152792,
+            "tpotP50": 0.053540016959700364,
+            "tpotP99": 6.50212786724791,
+            "outputThroughput": 785.9742245995179,
+            "inputThroughput": 200.8294567291678,
+            "totalThroughput": 986.8036813286857,
+            "requestsPerSecond": 0.440042051223746,
             "errorRate": 0,
-            "numCompletedRequests": 274,
+            "numCompletedRequests": 238,
             "numErrorRequests": 0,
-            "numRequests": 274
+            "numRequests": 238
           },
           "constraints": [
             0,
             0,
             0
           ],
-          "score": 773.2479200305501,
-          "duration": "11m50.276632482s",
-          "startTime": "2026-05-06T13:03:02.116372204Z",
-          "endTime": "2026-05-06T13:14:52.393004717Z"
+          "score": 785.9742245995179,
+          "duration": "12m20.832026821s",
+          "startTime": "2026-05-07T07:31:50.487891034Z",
+          "endTime": "2026-05-07T07:44:11.319917847Z"
         },
         {
           "trialIndex": 3,
           "templateName": "single",
           "params": {
             "default": {
-              "chunkedPrefillSize": 2048,
-              "gpuMemoryUtilization": 0.95,
-              "maxNumSeqs": 2048,
-              "schedulePolicy": "lpm"
+              "chunkedPrefillSize": 4096,
+              "gpuMemoryUtilization": 0.7,
+              "maxNumSeqs": 1024,
+              "schedulePolicy": "random"
             }
           },
           "metrics": {
-            "ttftP50": 9.356263886205852,
-            "ttftP99": 60.92242146007278,
-            "tpotP50": 0.0807234131663819,
-            "tpotP99": 12.957527178740138,
-            "outputThroughput": 814.3491897534174,
-            "inputThroughput": 263.6269325581882,
-            "totalThroughput": 1077.9761223116054,
-            "requestsPerSecond": 0.5601857427906616,
+            "ttftP50": 5.898068323731422,
+            "ttftP99": 125.98600083054033,
+            "tpotP50": 0.05427358112944229,
+            "tpotP99": 6.034675379227845,
+            "outputThroughput": 809.3635925049429,
+            "inputThroughput": 223.13008439890953,
+            "totalThroughput": 1032.4936769038525,
+            "requestsPerSecond": 0.49549869826635096,
             "errorRate": 0,
-            "numCompletedRequests": 303,
+            "numCompletedRequests": 268,
             "numErrorRequests": 0,
-            "numRequests": 303
+            "numRequests": 268
           },
           "constraints": [
             0,
             0,
             0
           ],
-          "score": 814.3491897534174,
-          "duration": "11m50.955938512s",
-          "startTime": "2026-05-06T13:14:52.507728693Z",
-          "endTime": "2026-05-06T13:26:43.463667203Z"
+          "score": 809.3635925049429,
+          "duration": "12m0.945593421s",
+          "startTime": "2026-05-07T07:44:11.514560014Z",
+          "endTime": "2026-05-07T07:56:12.460153534Z"
         },
         {
           "trialIndex": 4,
           "templateName": "single",
           "params": {
             "default": {
-              "chunkedPrefillSize": 8192,
+              "chunkedPrefillSize": 1024,
               "gpuMemoryUtilization": 0.95,
               "maxNumSeqs": 2048,
               "schedulePolicy": "lpm"
             }
           },
-          "constraints": null,
-          "score": 0,
-          "error": "RBG not ready: context deadline exceeded",
-          "duration": "15m0.018028775s",
-          "startTime": "2026-05-06T13:26:43.624101481Z",
-          "endTime": "2026-05-06T13:41:43.642130246Z"
+          "metrics": {
+            "ttftP50": 8.618515748996288,
+            "ttftP99": 18.079848471274598,
+            "tpotP50": 0.08144574756135815,
+            "tpotP99": 8.476628461182107,
+            "outputThroughput": 793.6571272941719,
+            "inputThroughput": 253.75938936337567,
+            "totalThroughput": 1047.4165166575478,
+            "requestsPerSecond": 0.5361588300498816,
+            "errorRate": 0,
+            "numCompletedRequests": 290,
+            "numErrorRequests": 0,
+            "numRequests": 290
+          },
+          "constraints": [
+            0,
+            0,
+            0
+          ],
+          "score": 793.6571272941719,
+          "duration": "11m50.42472345s",
+          "startTime": "2026-05-07T07:56:12.627966209Z",
+          "endTime": "2026-05-07T08:08:03.052689699Z"
         },
         {
           "trialIndex": 5,
           "templateName": "single",
           "params": {
             "default": {
-              "chunkedPrefillSize": 8192,
-              "gpuMemoryUtilization": 0.7,
-              "maxNumSeqs": 256,
-              "schedulePolicy": "dfs-weight"
+              "chunkedPrefillSize": 512,
+              "gpuMemoryUtilization": 0.85,
+              "maxNumSeqs": 2048,
+              "schedulePolicy": "lpm"
             }
           },
           "metrics": {
-            "ttftP50": 6.392988413572311,
-            "ttftP99": 84.65499394568607,
-            "tpotP50": 0.05483958377131286,
-            "tpotP99": 3.226437538047321,
-            "outputThroughput": 838.7885039996737,
-            "inputThroughput": 247.09528356765108,
-            "totalThroughput": 1085.8837875673246,
-            "requestsPerSecond": 0.5306108682998031,
+            "ttftP50": 7.852862841682509,
+            "ttftP99": 23.810524435201593,
+            "tpotP50": 0.07191578253328418,
+            "tpotP99": 13.378943355544479,
+            "outputThroughput": 794.6622736916335,
+            "inputThroughput": 255.97927335446647,
+            "totalThroughput": 1050.6415470461,
+            "requestsPerSecond": 0.5361464849246156,
             "errorRate": 0,
-            "numCompletedRequests": 287,
+            "numCompletedRequests": 290,
             "numErrorRequests": 0,
-            "numRequests": 287
+            "numRequests": 290
           },
           "constraints": [
             0,
             0,
             0
           ],
-          "score": 838.7885039996737,
-          "duration": "12m0.701683253s",
-          "startTime": "2026-05-06T13:41:44.026364647Z",
-          "endTime": "2026-05-06T13:53:44.728048018Z"
+          "score": 794.6622736916335,
+          "duration": "11m50.630273603s",
+          "startTime": "2026-05-07T08:08:03.217693675Z",
+          "endTime": "2026-05-07T08:19:53.84796728Z"
         },
         {
           "trialIndex": 6,
           "templateName": "single",
           "params": {
             "default": {
-              "chunkedPrefillSize": 8192,
-              "gpuMemoryUtilization": 0.8,
-              "maxNumSeqs": 512,
-              "schedulePolicy": "dfs-weight"
+              "chunkedPrefillSize": 512,
+              "gpuMemoryUtilization": 0.95,
+              "maxNumSeqs": 2048,
+              "schedulePolicy": "random"
             }
           },
           "metrics": {
-            "ttftP50": 7.1425374743994325,
-            "ttftP99": 23.010712923705817,
-            "tpotP50": 0.06340884705062895,
-            "tpotP99": 5.8208415898913595,
-            "outputThroughput": 822.1443797445014,
-            "inputThroughput": 240.66654623664067,
-            "totalThroughput": 1062.810925981142,
-            "requestsPerSecond": 0.5250573481971673,
+            "ttftP50": 10.752360689919442,
+            "ttftP99": 19.876724574472757,
+            "tpotP50": 0.07925980225423969,
+            "tpotP99": 17.306232336275276,
+            "outputThroughput": 792.5097442379514,
+            "inputThroughput": 251.44328447009357,
+            "totalThroughput": 1043.953028708045,
+            "requestsPerSecond": 0.547272433274832,
             "errorRate": 0,
-            "numCompletedRequests": 284,
+            "numCompletedRequests": 296,
             "numErrorRequests": 0,
-            "numRequests": 284
+            "numRequests": 296
           },
           "constraints": [
             0,
-            0,
+            2.3062323362752757,
             0
           ],
-          "score": 822.1443797445014,
-          "duration": "12m20.79155844s",
-          "startTime": "2026-05-06T13:53:44.873303743Z",
-          "endTime": "2026-05-06T14:06:05.664862232Z"
+          "score": 792.5097442379514,
+          "duration": "11m50.660050377s",
+          "startTime": "2026-05-07T08:19:54.036173358Z",
+          "endTime": "2026-05-07T08:31:44.696223728Z"
         },
         {
           "trialIndex": 7,
           "templateName": "single",
           "params": {
             "default": {
-              "chunkedPrefillSize": 512,
-              "gpuMemoryUtilization": 0.8,
-              "maxNumSeqs": 2048,
+              "chunkedPrefillSize": 1024,
+              "gpuMemoryUtilization": 0.7999999999999999,
+              "maxNumSeqs": 512,
               "schedulePolicy": "random"
             }
           },
           "metrics": {
-            "ttftP50": 8.17305635008961,
-            "ttftP99": 48.36755869602302,
-            "tpotP50": 0.06589849443795506,
-            "tpotP99": 8.389326657848407,
-            "outputThroughput": 861.0414145521207,
-            "inputThroughput": 240.55987036874976,
-            "totalThroughput": 1101.6012849208703,
-            "requestsPerSecond": 0.5326702861723378,
+            "ttftP50": 7.698893161024898,
+            "ttftP99": 20.902636443102004,
+            "tpotP50": 0.06641919336548921,
+            "tpotP99": 7.103317263629264,
+            "outputThroughput": 823.2649253146965,
+            "inputThroughput": 233.35782526971153,
+            "totalThroughput": 1056.6227505844079,
+            "requestsPerSecond": 0.5159876304481887,
             "errorRate": 0,
-            "numCompletedRequests": 288,
+            "numCompletedRequests": 279,
             "numErrorRequests": 0,
-            "numRequests": 288
+            "numRequests": 279
           },
           "constraints": [
             0,
             0,
             0
           ],
-          "score": 861.0414145521207,
-          "duration": "11m40.420170531s",
-          "startTime": "2026-05-06T14:06:05.822418031Z",
-          "endTime": "2026-05-06T14:17:46.24258857Z"
+          "score": 823.2649253146965,
+          "duration": "11m50.340498949s",
+          "startTime": "2026-05-07T08:31:44.944721293Z",
+          "endTime": "2026-05-07T08:43:35.285220275Z"
         },
         {
           "trialIndex": 8,
           "templateName": "single",
           "params": {
             "default": {
-              "chunkedPrefillSize": 8192,
-              "gpuMemoryUtilization": 0.7,
-              "maxNumSeqs": 256,
-              "schedulePolicy": "random"
-            }
-          },
-          "metrics": {
-            "ttftP50": 5.955956440418959,
-            "ttftP99": 132.60358563936782,
-            "tpotP50": 0.05426768380056192,
-            "tpotP99": 6.6370260800700605,
-            "outputThroughput": 761.1024894694286,
-            "inputThroughput": 217.7283745645541,
-            "totalThroughput": 978.8308640339827,
-            "requestsPerSecond": 0.4603834240144544,
-            "errorRate": 0,
-            "numCompletedRequests": 249,
-            "numErrorRequests": 0,
-            "numRequests": 249
-          },
-          "constraints": [
-            0,
-            0,
-            0
-          ],
-          "score": 761.1024894694286,
-          "duration": "12m20.77050227s",
-          "startTime": "2026-05-06T14:17:46.393237884Z",
-          "endTime": "2026-05-06T14:30:07.163740158Z"
-        },
-        {
-          "trialIndex": 9,
-          "templateName": "single",
-          "params": {
-            "default": {
-              "chunkedPrefillSize": 8192,
-              "gpuMemoryUtilization": 0.9,
+              "chunkedPrefillSize": 2048,
+              "gpuMemoryUtilization": 0.8999999999999999,
               "maxNumSeqs": 256,
               "schedulePolicy": "dfs-weight"
             }
           },
           "metrics": {
-            "ttftP50": 9.343041487969458,
-            "ttftP99": 36.15264473591006,
-            "tpotP50": 0.07407377930223502,
-            "tpotP99": 8.763506279857829,
-            "outputThroughput": 802.8855629799715,
-            "inputThroughput": 249.72337422737658,
-            "totalThroughput": 1052.6089372073482,
-            "requestsPerSecond": 0.5232263518032777,
+            "ttftP50": 9.106129177613184,
+            "ttftP99": 17.125522999139502,
+            "tpotP50": 0.07560853160175032,
+            "tpotP99": 11.9526982669253,
+            "outputThroughput": 799.2164546751761,
+            "inputThroughput": 247.92691573298,
+            "totalThroughput": 1047.1433704081562,
+            "requestsPerSecond": 0.5234125801346816,
             "errorRate": 0,
             "numCompletedRequests": 283,
             "numErrorRequests": 0,
@@ -440,10 +375,45 @@
             0,
             0
           ],
-          "score": 802.8855629799715,
-          "duration": "12m20.704104595s",
-          "startTime": "2026-05-06T14:30:07.328876906Z",
-          "endTime": "2026-05-06T14:42:28.032981484Z"
+          "score": 799.2164546751761,
+          "duration": "11m50.253143197s",
+          "startTime": "2026-05-07T08:43:35.45627157Z",
+          "endTime": "2026-05-07T08:55:25.709414872Z"
+        },
+        {
+          "trialIndex": 9,
+          "templateName": "single",
+          "params": {
+            "default": {
+              "chunkedPrefillSize": 2048,
+              "gpuMemoryUtilization": 0.95,
+              "maxNumSeqs": 512,
+              "schedulePolicy": "lpm"
+            }
+          },
+          "metrics": {
+            "ttftP50": 10.26152589963749,
+            "ttftP99": 17.140261033689605,
+            "tpotP50": 0.0810954119660362,
+            "tpotP99": 5.971541471928337,
+            "outputThroughput": 792.6612471946919,
+            "inputThroughput": 238.45374268263618,
+            "totalThroughput": 1031.114989877328,
+            "requestsPerSecond": 0.530601626648363,
+            "errorRate": 0,
+            "numCompletedRequests": 287,
+            "numErrorRequests": 0,
+            "numRequests": 287
+          },
+          "constraints": [
+            0,
+            0,
+            0
+          ],
+          "score": 792.6612471946919,
+          "duration": "11m50.903269167s",
+          "startTime": "2026-05-07T08:55:25.908353558Z",
+          "endTime": "2026-05-07T09:07:16.811622807Z"
         },
         {
           "trialIndex": 10,
@@ -451,125 +421,55 @@
           "params": {
             "default": {
               "chunkedPrefillSize": 8192,
-              "gpuMemoryUtilization": 0.7,
-              "maxNumSeqs": 512,
-              "schedulePolicy": "lpm"
+              "gpuMemoryUtilization": 0.75,
+              "maxNumSeqs": 256,
+              "schedulePolicy": "dfs-weight"
             }
           },
           "metrics": {
-            "ttftP50": 6.309124084422365,
-            "ttftP99": 141.82474326347932,
-            "tpotP50": 0.05483341790037056,
-            "tpotP99": 4.501673286408186,
-            "outputThroughput": 835.245434491395,
-            "inputThroughput": 249.6407940668736,
-            "totalThroughput": 1084.8862285582688,
-            "requestsPerSecond": 0.5048778797643901,
+            "ttftP50": 6.24711153563112,
+            "ttftP99": 122.59029867583887,
+            "tpotP50": 0.05598927727212847,
+            "tpotP99": 7.022089344635606,
+            "outputThroughput": 823.2044425782998,
+            "inputThroughput": 226.25424658032065,
+            "totalThroughput": 1049.4586891586205,
+            "requestsPerSecond": 0.4753594289149419,
             "errorRate": 0,
-            "numCompletedRequests": 273,
+            "numCompletedRequests": 257,
             "numErrorRequests": 0,
-            "numRequests": 273
+            "numRequests": 257
           },
           "constraints": [
             0,
             0,
             0
           ],
-          "score": 835.245434491395,
-          "duration": "12m20.142596178s",
-          "startTime": "2026-05-06T14:42:28.244647166Z",
-          "endTime": "2026-05-06T14:54:48.387243369Z"
+          "score": 823.2044425782998,
+          "duration": "12m20.756323548s",
+          "startTime": "2026-05-07T09:07:16.962541543Z",
+          "endTime": "2026-05-07T09:19:37.718865123Z"
         },
         {
           "trialIndex": 11,
           "templateName": "single",
           "params": {
             "default": {
-              "chunkedPrefillSize": 512,
-              "gpuMemoryUtilization": 0.8,
-              "maxNumSeqs": 2048,
+              "chunkedPrefillSize": 1024,
+              "gpuMemoryUtilization": 0.7999999999999999,
+              "maxNumSeqs": 256,
               "schedulePolicy": "random"
             }
           },
           "metrics": {
-            "ttftP50": 8.072385259903967,
-            "ttftP99": 44.64059692047542,
-            "tpotP50": 0.06627290609189898,
-            "tpotP99": 7.673958030603829,
-            "outputThroughput": 864.3568736327699,
-            "inputThroughput": 243.75225364638183,
-            "totalThroughput": 1108.1091272791518,
-            "requestsPerSecond": 0.5382231395568419,
-            "errorRate": 0,
-            "numCompletedRequests": 291,
-            "numErrorRequests": 0,
-            "numRequests": 291
-          },
-          "constraints": [
-            0,
-            0,
-            0
-          ],
-          "score": 864.3568736327699,
-          "duration": "11m50.250181445s",
-          "startTime": "2026-05-06T14:54:48.506399648Z",
-          "endTime": "2026-05-06T15:06:38.756581033Z"
-        },
-        {
-          "trialIndex": 12,
-          "templateName": "single",
-          "params": {
-            "default": {
-              "chunkedPrefillSize": 512,
-              "gpuMemoryUtilization": 0.8,
-              "maxNumSeqs": 2048,
-              "schedulePolicy": "random"
-            }
-          },
-          "metrics": {
-            "ttftP50": 8.578442548867315,
-            "ttftP99": 48.295028015970665,
-            "tpotP50": 0.06565259777467003,
-            "tpotP99": 5.955251654288732,
-            "outputThroughput": 821.8660363298303,
-            "inputThroughput": 238.36902978969093,
-            "totalThroughput": 1060.2350661195212,
-            "requestsPerSecond": 0.5382016805595916,
-            "errorRate": 0,
-            "numCompletedRequests": 291,
-            "numErrorRequests": 0,
-            "numRequests": 291
-          },
-          "constraints": [
-            0,
-            0,
-            0
-          ],
-          "score": 821.8660363298303,
-          "duration": "11m50.55066358s",
-          "startTime": "2026-05-06T15:06:38.914520575Z",
-          "endTime": "2026-05-06T15:18:29.465184192Z"
-        },
-        {
-          "trialIndex": 13,
-          "templateName": "single",
-          "params": {
-            "default": {
-              "chunkedPrefillSize": 512,
-              "gpuMemoryUtilization": 0.8,
-              "maxNumSeqs": 2048,
-              "schedulePolicy": "random"
-            }
-          },
-          "metrics": {
-            "ttftP50": 8.969996315659955,
-            "ttftP99": 35.39610477402824,
-            "tpotP50": 0.0667018849152858,
-            "tpotP99": 12.83078366316855,
-            "outputThroughput": 805.6815012954861,
-            "inputThroughput": 230.6359195758811,
-            "totalThroughput": 1036.3174208713672,
-            "requestsPerSecond": 0.5067903012758622,
+            "ttftP50": 8.631084695924073,
+            "ttftP99": 126.33666174777312,
+            "tpotP50": 0.06522634325929873,
+            "tpotP99": 7.338410515338182,
+            "outputThroughput": 804.985530820792,
+            "inputThroughput": 231.5995022167505,
+            "totalThroughput": 1036.5850330375424,
+            "requestsPerSecond": 0.5065680808814722,
             "errorRate": 0,
             "numCompletedRequests": 274,
             "numErrorRequests": 0,
@@ -580,152 +480,47 @@
             0,
             0
           ],
-          "score": 805.6815012954861,
-          "duration": "11m50.267044283s",
-          "startTime": "2026-05-06T15:18:29.623673145Z",
-          "endTime": "2026-05-06T15:30:19.890717513Z"
+          "score": 804.985530820792,
+          "duration": "11m50.205475053s",
+          "startTime": "2026-05-07T09:19:37.890115657Z",
+          "endTime": "2026-05-07T09:31:28.095591022Z"
         },
         {
-          "trialIndex": 14,
+          "trialIndex": 12,
           "templateName": "single",
           "params": {
             "default": {
-              "chunkedPrefillSize": 512,
-              "gpuMemoryUtilization": 0.8,
-              "maxNumSeqs": 2048,
+              "chunkedPrefillSize": 1024,
+              "gpuMemoryUtilization": 0.7999999999999999,
+              "maxNumSeqs": 512,
               "schedulePolicy": "random"
             }
           },
           "metrics": {
-            "ttftP50": 8.568732061889023,
-            "ttftP99": 36.9506019471585,
-            "tpotP50": 0.06578398272055955,
-            "tpotP99": 4.4363442154974,
-            "outputThroughput": 804.6220149191287,
-            "inputThroughput": 219.78826817904633,
-            "totalThroughput": 1024.410283098175,
-            "requestsPerSecond": 0.49013203394482874,
+            "ttftP50": 7.564026611158624,
+            "ttftP99": 138.28485254434398,
+            "tpotP50": 0.06388950119675446,
+            "tpotP99": 10.114671596707772,
+            "outputThroughput": 832.5669939997794,
+            "inputThroughput": 237.99732091876731,
+            "totalThroughput": 1070.5643149185464,
+            "requestsPerSecond": 0.506745122643424,
             "errorRate": 0,
-            "numCompletedRequests": 265,
+            "numCompletedRequests": 274,
             "numErrorRequests": 0,
-            "numRequests": 265
+            "numRequests": 274
           },
           "constraints": [
             0,
             0,
             0
           ],
-          "score": 804.6220149191287,
-          "duration": "11m50.482252175s",
-          "startTime": "2026-05-06T15:30:20.065510711Z",
-          "endTime": "2026-05-06T15:42:10.547762882Z"
-        },
-        {
-          "trialIndex": 15,
-          "templateName": "single",
-          "params": {
-            "default": {
-              "chunkedPrefillSize": 512,
-              "gpuMemoryUtilization": 0.8,
-              "maxNumSeqs": 2048,
-              "schedulePolicy": "random"
-            }
-          },
-          "metrics": {
-            "ttftP50": 8.118076179875061,
-            "ttftP99": 83.03115239448844,
-            "tpotP50": 0.06595339441972448,
-            "tpotP99": 12.748805490881201,
-            "outputThroughput": 788.199639329429,
-            "inputThroughput": 224.23247569712677,
-            "totalThroughput": 1012.4321150265558,
-            "requestsPerSecond": 0.4991720770876822,
-            "errorRate": 0,
-            "numCompletedRequests": 270,
-            "numErrorRequests": 0,
-            "numRequests": 270
-          },
-          "constraints": [
-            0,
-            0,
-            0
-          ],
-          "score": 788.199639329429,
-          "duration": "11m50.555291312s",
-          "startTime": "2026-05-06T15:42:10.757017172Z",
-          "endTime": "2026-05-06T15:54:01.312308529Z"
-        },
-        {
-          "trialIndex": 16,
-          "templateName": "single",
-          "params": {
-            "default": {
-              "chunkedPrefillSize": 512,
-              "gpuMemoryUtilization": 0.8,
-              "maxNumSeqs": 2048,
-              "schedulePolicy": "random"
-            }
-          },
-          "metrics": {
-            "ttftP50": 8.767925317864865,
-            "ttftP99": 57.61271346406083,
-            "tpotP50": 0.06632930692337857,
-            "tpotP99": 9.429942382499583,
-            "outputThroughput": 786.8022651631351,
-            "inputThroughput": 237.94042451482196,
-            "totalThroughput": 1024.742689677957,
-            "requestsPerSecond": 0.5141684025164559,
-            "errorRate": 0,
-            "numCompletedRequests": 278,
-            "numErrorRequests": 0,
-            "numRequests": 278
-          },
-          "constraints": [
-            0,
-            0,
-            0
-          ],
-          "score": 786.8022651631351,
-          "duration": "11m50.192913545s",
-          "startTime": "2026-05-06T15:54:01.427060064Z",
-          "endTime": "2026-05-06T16:05:51.619973602Z"
+          "score": 832.5669939997794,
+          "duration": "11m50.548240545s",
+          "startTime": "2026-05-07T09:31:28.240724635Z",
+          "endTime": "2026-05-07T09:43:18.788965174Z"
         }
       ]
     }
-  ],
-  "globalBest": {
-    "trialIndex": 11,
-    "templateName": "single",
-    "params": {
-      "default": {
-        "chunkedPrefillSize": 512,
-        "gpuMemoryUtilization": 0.8,
-        "maxNumSeqs": 2048,
-        "schedulePolicy": "random"
-      }
-    },
-    "metrics": {
-      "ttftP50": 8.072385259903967,
-      "ttftP99": 44.64059692047542,
-      "tpotP50": 0.06627290609189898,
-      "tpotP99": 7.673958030603829,
-      "outputThroughput": 864.3568736327699,
-      "inputThroughput": 243.75225364638183,
-      "totalThroughput": 1108.1091272791518,
-      "requestsPerSecond": 0.5382231395568419,
-      "errorRate": 0,
-      "numCompletedRequests": 291,
-      "numErrorRequests": 0,
-      "numRequests": 291
-    },
-    "constraints": [
-      0,
-      0,
-      0
-    ],
-    "score": 864.3568736327699,
-    "duration": "11m50.250181445s",
-    "startTime": "2026-05-06T14:54:48.506399648Z",
-    "endTime": "2026-05-06T15:06:38.756581033Z"
-  }
+  ]
 }
