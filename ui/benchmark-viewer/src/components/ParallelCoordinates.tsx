@@ -284,27 +284,6 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
             return <circle key={`dot-${pi}`} cx={x} cy={y} r={4} fill="white" stroke={trialLines[hoveredTrial].color} strokeWidth={2.5} />
           })}
 
-          {/* Score labels at the rightmost axis */}
-          {trialLines.map(line => {
-            const lastP = line.points[line.points.length - 1]
-            const x = xForAxis(lastP.x)
-            const y = padding.top + lastP.y * plotH
-            return (
-              <text
-                key={`score-${line.trialIdx}`}
-                x={x + 8}
-                y={y + 4}
-                className="fill-foreground"
-                fontSize="10"
-                fontFamily="JetBrains Mono, monospace"
-                fontWeight="500"
-                opacity={hoveredTrial === null ? 0.85 : (hoveredTrial === line.trialIdx ? 1 : 0.1)}
-              >
-                {formatNumber(line.score)}
-              </text>
-            )
-          })}
-
           {/* Axis labels (bottom) */}
           {axes.map((axis, i) => {
             const x = xForAxis(i)
@@ -324,79 +303,41 @@ export function ParallelCoordinates({ trials, optimize, height = 420 }: Parallel
             )
           })}
 
-          {/* Top tick labels (min/max values or category labels) */}
-          {axes.map((axis, i) => {
-            const x = xForAxis(i)
-            if (axis.isCategorical) {
-              // Render category labels along the axis
-              if (axis.categories.length === 0) return null
-              if (axis.categories.length > 12) {
-                // Too many categories: show count instead
-                return (
-                  <g key={`ticks-${i}`}>
+          {/* Axis value labels at each intersection point */}
+          {trialLines.map((line, lineIdx) => {
+            return (
+              <g key={`labels-${line.trialIdx}`}>
+                {line.points.map((point, pointIdx) => {
+                  const axis = axes[pointIdx]
+                  const x = xForAxis(point.x)
+                  const y = padding.top + point.y * plotH
+                  
+                  let label: string
+                  if (axis.isCategorical) {
+                    const trialValue = allTrials[lineIdx]?.params.default?.[axis.label]
+                    label = String(trialValue ?? '')
+                  } else if (axis.isMetric) {
+                    label = formatNumber(line.score)
+                  } else {
+                    const trialValue = allTrials[lineIdx]?.params.default?.[axis.label]
+                    label = typeof trialValue === 'number' ? formatNumber(trialValue) : String(trialValue ?? '')
+                  }
+                  
+                  return (
                     <text
+                      key={`val-${pointIdx}`}
                       x={x + 8}
-                      y={padding.top + plotH / 2 + 4}
+                      y={y + 4}
                       textAnchor="start"
                       className="fill-muted-foreground"
                       fontSize="9"
                       fontFamily="JetBrains Mono, monospace"
+                      opacity={hoveredTrial === null ? 0.85 : (hoveredTrial === lineIdx ? 1 : 0.1)}
                     >
-                      {axis.categories.length} values
+                      {label}
                     </text>
-                  </g>
-                )
-              }
-              return (
-                <g key={`ticks-${i}`}>
-                  {axis.categories.map((cat, ci) => {
-                    let y: number
-                    if (axis.categories.length === 1) {
-                      y = padding.top + plotH / 2
-                    } else {
-                      const ratio = ci / (axis.categories.length - 1)
-                      y = padding.top + (1 - ratio) * plotH
-                    }
-                    return (
-                      <text
-                        key={cat}
-                        x={x + 8}
-                        y={y + 4}
-                        textAnchor="start"
-                        className="fill-muted-foreground"
-                        fontSize="9"
-                        fontFamily="JetBrains Mono, monospace"
-                      >
-                        {axisLabelShort(cat)}
-                      </text>
-                    )
-                  })}
-                </g>
-              )
-            }
-            // Numeric axis: show min/max labels
-            return (
-              <g key={`ticks-${i}`}>
-                <text
-                  x={x}
-                  y={padding.top - 5}
-                  textAnchor="middle"
-                  className="fill-muted-foreground"
-                  fontSize="9"
-                  fontFamily="JetBrains Mono, monospace"
-                >
-                  {formatNumber(axis.max)}
-                </text>
-                <text
-                  x={x}
-                  y={padding.top + plotH + 14}
-                  textAnchor="middle"
-                  className="fill-muted-foreground"
-                  fontSize="9"
-                  fontFamily="JetBrains Mono, monospace"
-                >
-                  {formatNumber(axis.min)}
-                </text>
+                  )
+                })}
               </g>
             )
           })}
