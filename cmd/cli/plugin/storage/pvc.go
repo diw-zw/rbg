@@ -57,12 +57,6 @@ func (p *PVCStorage) Init(config map[string]interface{}) error {
 	return nil
 }
 
-// Exists checks if the model exists in storage
-func (p *PVCStorage) Exists(modelID string) (bool, error) {
-	// TODO: Implement actual check
-	return false, nil
-}
-
 // MountStorage mounts the pre-existing PVC to the pod template.
 // PVC must be created separately before running the workload; this plugin does not provision it.
 func (p *PVCStorage) MountStorage(podTemplate *corev1.PodTemplateSpec, opts MountOptions) error {

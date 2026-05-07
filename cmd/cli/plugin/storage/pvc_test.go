@@ -58,13 +58,6 @@ func TestPVCStorage_Init_OK(t *testing.T) {
 	assert.Equal(t, "my-pvc", p.pvcName)
 }
 
-func TestPVCStorage_Exists(t *testing.T) {
-	p := &PVCStorage{pvcName: "my-pvc"}
-	exists, err := p.Exists("any-model")
-	require.NoError(t, err)
-	assert.False(t, exists)
-}
-
 func TestPVCStorage_MountStorage_AddsVolumeAndMount(t *testing.T) {
 	p := &PVCStorage{pvcName: "my-pvc"}
 

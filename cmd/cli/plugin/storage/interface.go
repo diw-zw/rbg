@@ -81,9 +81,6 @@ type Plugin interface {
 	// Init initializes storage with config.
 	Init(config map[string]interface{}) error
 
-	// Exists checks if the model already exists in storage.
-	Exists(modelID string) (bool, error)
-
 	// MountStorage provisions any required Kubernetes resources (e.g., Secret, PV, PVC)
 	// and modifies the PodTemplateSpec to add volumes and mounts.
 	// The volume is mounted at the path specified by opts.MountPath.
