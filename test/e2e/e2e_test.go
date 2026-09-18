@@ -53,6 +53,7 @@ func TestE2E(t *testing.T) {
 	// Run explicitly with: ginkgo --label-filter=v1alpha1
 	ginkgo.Describe(
 		"[v1alpha1] Run role based controller e2e tests",
+		ginkgo.Label("v1alpha1"),
 		func() {
 			testcasev1alpha1.RunRbgControllerTestCases(f)
 			testcasev1alpha1.RunControllerRevisionTestCases(f)
@@ -65,15 +66,16 @@ func TestE2E(t *testing.T) {
 		},
 	)
 
+	// Run with: ginkgo --label-filter='v1alpha2 && !deprecated-workload'
 	ginkgo.Describe(
-		"[v1alpha2] Run role based controller e2e tests", func() {
+		"[v1alpha2] Run role based controller e2e tests",
+		ginkgo.Label("v1alpha2"),
+		func() {
 			testcasev1alpha2.RunRbgControllerTestCases(f)
 			testcasev1alpha2.RunSharedServiceSelectionTestCases(f)
 			testcasev1alpha2.RunControllerRevisionTestCases(f)
 			testcasev1alpha2.RunRbgScalingAdapterControllerTestCases(f)
-			testcasev1alpha2.RunDeploymentWorkloadTestCases(f)
-			testcasev1alpha2.RunStatefulSetWorkloadTestCases(f)
-			testcasev1alpha2.RunLeaderWorkerSetWorkloadTestCases(f)
+			testcasev1alpha2.RunLeaderWorkerPatternTestCases(f)
 			testcasev1alpha2.RunRoleInstanceSetWorkloadTestCases(f)
 			testcasev1alpha2.RunRbgSetControllerTestCases(f)
 			testcasev1alpha2.RunRoleTemplateTestCases(f)
@@ -91,6 +93,26 @@ func TestE2E(t *testing.T) {
 			testcasev1alpha2.RunWebhookValidationTestCases(f)
 			testcasev1alpha2.RunRBACAndWebhookBootstrapTestCases(f)
 			testcasev1alpha2.RunGangSchedulingTestCases(f)
+		},
+	)
+
+	// Specs that exercise the deprecated workload types (Deployment, StatefulSet,
+	// LeaderWorkerSet). They only pass on a cluster installed with the deprecated
+	// workload types enabled (Helm: controller.deprecatedWorkloadTypes.enabled=true,
+	// the default); on a deprecated-disabled cluster the validating webhook rejects
+	// every object these specs create. Exclude them with:
+	//   --ginkgo.label-filter='!deprecated-workload'
+	ginkgo.Describe(
+		"[v1alpha2] deprecated workload type e2e tests",
+		ginkgo.Label("v1alpha2", "deprecated-workload"),
+		func() {
+			testcasev1alpha2.RunRbgControllerDeprecatedWorkloadTestCases(f)
+			testcasev1alpha2.RunControllerRevisionDeprecatedWorkloadTestCases(f)
+			testcasev1alpha2.RunRbgScalingAdapterControllerDeprecatedWorkloadTestCases(f)
+			testcasev1alpha2.RunDeploymentWorkloadTestCases(f)
+			testcasev1alpha2.RunStatefulSetWorkloadTestCases(f)
+			testcasev1alpha2.RunLeaderWorkerSetWorkloadTestCases(f)
+			testcasev1alpha2.RunInactivePodDeprecatedWorkloadTestCases(f)
 		},
 	)
 

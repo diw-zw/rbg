@@ -36,34 +36,6 @@ import (
 func RunControllerRevisionTestCases(f *framework.Framework) {
 	ginkgo.Describe("revision testcase", func() {
 
-		ginkgo.It("scenario of overriding changes that fail the semantically equal check", func() {
-			rbg := wrappersv2.BuildBasicRoleBasedGroup("e2e-test", f.Namespace).
-				WithRoles(
-					[]workloadsv1alpha2.RoleSpec{
-						wrappersv2.BuildStandaloneRole("role-deployment").
-							WithWorkload("apps/v1", "Deployment").Obj(),
-						wrappersv2.BuildStandaloneRole("role-sts").
-							WithWorkload("apps/v1", "StatefulSet").Obj(),
-						wrappersv2.BuildLeaderWorkerRole("role-lws").
-							WithWorkload("leaderworkerset.x-k8s.io/v1", "LeaderWorkerSet").Obj(),
-					},
-				).Obj()
-
-			f.RegisterDebugFn(func() { dumpDebugInfo(f, rbg) })
-
-			gomega.Expect(f.Client.Create(f.Ctx, rbg)).Should(gomega.Succeed())
-			f.ExpectRbgV2Equal(rbg)
-
-			// update role-sts template
-			updateRbgV2(f, rbg, func(rbg *workloadsv1alpha2.RoleBasedGroup) {
-				rbg.Spec.Roles[1].StandalonePattern.Template.Spec.TerminationGracePeriodSeconds = ptr.To(int64(100))
-			})
-			f.ExpectRbgV2Equal(rbg)
-
-			gomega.Expect(f.Client.Delete(f.Ctx, rbg)).Should(gomega.Succeed())
-			f.ExpectRbgV2Deleted(rbg)
-		})
-
 		ginkgo.It(
 			"the workload spec will only be modified once", func() {
 				rbg := wrappersv2.BuildBasicRoleBasedGroup("e2e-test", f.Namespace).
@@ -115,6 +87,43 @@ func RunControllerRevisionTestCases(f *framework.Framework) {
 				}, utils.Timeout, utils.Interval).Should(gomega.BeTrue())
 			},
 		)
+
+	})
+}
+
+// RunControllerRevisionDeprecatedWorkloadTestCases holds the revision specs that use
+// the deprecated workload types (Deployment/StatefulSet/LeaderWorkerSet). They only
+// pass on a cluster running with --enable-deprecated-workload-types=true.
+func RunControllerRevisionDeprecatedWorkloadTestCases(f *framework.Framework) {
+	ginkgo.Describe("revision testcase (deprecated workload types)", func() {
+
+		ginkgo.It("scenario of overriding changes that fail the semantically equal check", func() {
+			rbg := wrappersv2.BuildBasicRoleBasedGroup("e2e-test", f.Namespace).
+				WithRoles(
+					[]workloadsv1alpha2.RoleSpec{
+						wrappersv2.BuildStandaloneRole("role-deployment").
+							WithWorkload("apps/v1", "Deployment").Obj(),
+						wrappersv2.BuildStandaloneRole("role-sts").
+							WithWorkload("apps/v1", "StatefulSet").Obj(),
+						wrappersv2.BuildLeaderWorkerRole("role-lws").
+							WithWorkload("leaderworkerset.x-k8s.io/v1", "LeaderWorkerSet").Obj(),
+					},
+				).Obj()
+
+			f.RegisterDebugFn(func() { dumpDebugInfo(f, rbg) })
+
+			gomega.Expect(f.Client.Create(f.Ctx, rbg)).Should(gomega.Succeed())
+			f.ExpectRbgV2Equal(rbg)
+
+			// update role-sts template
+			updateRbgV2(f, rbg, func(rbg *workloadsv1alpha2.RoleBasedGroup) {
+				rbg.Spec.Roles[1].StandalonePattern.Template.Spec.TerminationGracePeriodSeconds = ptr.To(int64(100))
+			})
+			f.ExpectRbgV2Equal(rbg)
+
+			gomega.Expect(f.Client.Delete(f.Ctx, rbg)).Should(gomega.Succeed())
+			f.ExpectRbgV2Deleted(rbg)
+		})
 
 		ginkgo.It("semantic comparison can reconcile modifications on the workload", func() {
 			rbg := wrappersv2.BuildBasicRoleBasedGroup("e2e-test", f.Namespace).WithRoles([]workloadsv1alpha2.RoleSpec{

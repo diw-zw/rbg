@@ -213,6 +213,16 @@ func RunRbgControllerTestCases(f *framework.Framework) {
 					gomega.Expect(progressAllowed).Should(gomega.BeNumerically(">", 0))
 				},
 			)
+		},
+	)
+}
+
+// RunRbgControllerDeprecatedWorkloadTestCases holds the rbg controller specs that use
+// the deprecated workload types (Deployment/StatefulSet/LeaderWorkerSet). They only
+// pass on a cluster running with --enable-deprecated-workload-types=true.
+func RunRbgControllerDeprecatedWorkloadTestCases(f *framework.Framework) {
+	ginkgo.Describe(
+		"rbg controller (deprecated workload types)", func() {
 
 			ginkgo.It(
 				"rbg with exclusive-topology", func() {

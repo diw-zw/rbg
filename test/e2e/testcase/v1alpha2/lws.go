@@ -97,7 +97,11 @@ func RunLeaderWorkerSetWorkloadTestCases(f *framework.Framework) {
 		})
 		f.ExpectRbgV2Equal(rbg)
 	})
+}
 
+// RunLeaderWorkerPatternTestCases covers leaderWorkerPattern roles running on the
+// default RoleInstanceSet workload, i.e. not the deprecated LeaderWorkerSet workload.
+func RunLeaderWorkerPatternTestCases(f *framework.Framework) {
 	ginkgo.It("leaderWorkerPattern env variables are correctly injected in default RoleInstanceSet mode", func() {
 		role := wrappersv2.BuildLeaderWorkerRole("role-1").WithSize(3).Obj()
 		// Replace the default nginx container with a busybox one that prints env vars.

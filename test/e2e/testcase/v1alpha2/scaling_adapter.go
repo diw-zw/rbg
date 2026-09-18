@@ -153,6 +153,16 @@ func RunRbgScalingAdapterControllerTestCases(f *framework.Framework) {
 					}
 				},
 			)
+		},
+	)
+}
+
+// RunRbgScalingAdapterControllerDeprecatedWorkloadTestCases holds the scaling adapter
+// specs that use the deprecated workload types (Deployment/StatefulSet/LeaderWorkerSet).
+// They only pass on a cluster running with --enable-deprecated-workload-types=true.
+func RunRbgScalingAdapterControllerDeprecatedWorkloadTestCases(f *framework.Framework) {
+	ginkgo.Describe(
+		"rbg scaling adapter controller (deprecated workload types)", func() {
 
 			ginkgo.It(
 				"test scale role in rbg via ScalingAdapter", func() {

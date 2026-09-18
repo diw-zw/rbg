@@ -32,11 +32,17 @@ import (
 )
 
 func RunInactivePodTestCases(f *framework.Framework) {
-	runEvictedPodTest(f)
 	runFailedPodRecreationTest(f)
 	runIgnoredComponentTest(f)
 	runNonIgnoredComponentTest(f)
 	runRestartingConditionTest(f)
+}
+
+// RunInactivePodDeprecatedWorkloadTestCases registers the inactive-pod specs that use
+// the deprecated workload types (Deployment/StatefulSet/LeaderWorkerSet). They only
+// pass on a cluster running with --enable-deprecated-workload-types=true.
+func RunInactivePodDeprecatedWorkloadTestCases(f *framework.Framework) {
+	runEvictedPodTest(f)
 	runRestartPolicyNoneTest(f)
 }
 
