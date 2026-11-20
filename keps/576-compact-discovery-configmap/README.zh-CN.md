@@ -319,8 +319,9 @@ metadata:
    存量 RBG 保持 `v1alpha1`。
 4. 创建时显式设置 `v1alpha1` 是文档化的 opt-out。
 5. 对 RBGSet，webhook 在 `spec.groupTemplate.annotations` 中写默认值。
-   child RBG 继承该值。直接修改 child annotation 会被 RBGSet controller
-   覆盖。
+   RBGSet controller 创建 child RBG 时复制 template annotations，并在
+   metadata sync 时用 template annotations 替换 child annotations。应设置
+   template annotation，而不是 child annotation。
 6. Admission 拒绝 `v1alpha1` 和 `v1` 以外的取值。
 7. Admission 对包含 deprecated stateful role 的 RBG 拒绝 `v1`。
 8. `RBGPredicate` 监听该 annotation，因此只修改 annotation 也会让 RBG
@@ -576,12 +577,22 @@ excludedOrdinals: "1,3"
 
 ### 迁移
 
-1. 移除 legacy discovery 支持，并部署支持 v1 的 controller。
-2. 没有 annotation 的存量 RBG 保持 v1alpha1 内容。存量 `legacy` RBG 会在
-   下一次 reconcile 时开始得到 `<rbg>`。
-3. 新 RBG 通过 mutating webhook 默认使用 `v1`。新 RBGSet 在
+1. 升级存量 RBGSet 之前，先把它的 template 固定为 v1alpha1：
+
+   ```yaml
+   spec:
+     groupTemplate:
+       annotations:
+         rbg.workloads.x-k8s.io/discovery-config-version: v1alpha1
+   ```
+
+2. 移除 legacy discovery 支持，并部署支持 v1 的 controller。
+3. 没有 annotation 的存量 RBG 保持 v1alpha1 内容。存量 `legacy` RBG 会在
+   下一次 reconcile 时开始得到 `<rbg>`。存量 RBGSet child 继承固定的
+   v1alpha1 annotation。
+4. 新 RBG 通过 mutating webhook 默认使用 `v1`。新 RBGSet 在
    `spec.groupTemplate.annotations` 中携带该 annotation。
-4. 要迁移某个存量 RBG，设置：
+5. 要迁移某个存量 RBG，设置：
 
    ```yaml
    metadata:
@@ -589,7 +600,9 @@ excludedOrdinals: "1,3"
        rbg.workloads.x-k8s.io/discovery-config-version: v1
    ```
 
-5. 等待 reconcile 完成，确认 ConfigMap 内容为 `apiVersion: v1`。
+6. 要迁移某个存量 RBGSet，把 `spec.groupTemplate.annotations` 中的该
+   annotation 改为 `v1`。RBGSet controller 会把变化传播到每个 child。
+7. 等待 reconcile 完成，确认 ConfigMap 内容为 `apiVersion: v1`。
 
 回退步骤：
 
@@ -607,6 +620,7 @@ excludedOrdinals: "1,3"
 - 新 RBG 的默认值行为，包括 `v1alpha1` opt-out。
 - webhook 只在 CREATE 时默认；UPDATE 不会为缺失 annotation 补默认值。
 - RBGSet 通过 `spec.groupTemplate.annotations` 传播 annotation。
+- RBGSet metadata sync 覆盖直接修改的 child annotation。
 - `RBGPredicate` 对仅修改 annotation 的变化入队。
 - Admission 拒绝非法 annotation 取值，并对 deprecated stateful role 拒绝
   `v1`。
@@ -633,6 +647,10 @@ excludedOrdinals: "1,3"
 - 没有 annotation 的存量 RBG 保持 v1alpha1。
 - mode selector 移除后，存量 `legacy` RBG 得到 `<rbg>`。
 - RBGSet child 从 GroupTemplate 继承版本 annotation。
+- 固定为 v1alpha1 的存量 RBGSet 新建 child 时，child 继承 v1alpha1。
+- 把存量 RBGSet 的 GroupTemplate annotation 改为 `v1` 后，所有 child 完成
+  迁移。
+- 直接修改 child annotation 会被 RBGSet metadata sync 覆盖。
 - 仅修改 annotation 会触发 reconcile。
 - v1alpha1 超过 1 MiB 时回滚被拒绝。
 

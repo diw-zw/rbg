@@ -340,8 +340,10 @@ Rules:
    the annotation remain `v1alpha1`.
 4. Setting `v1alpha1` at creation is the documented opt-out.
 5. For an RBGSet, the webhook defaults the annotation in
-   `spec.groupTemplate.annotations`. Child RBGs inherit that value. Direct
-   edits to a child annotation are overwritten by the RBGSet controller.
+   `spec.groupTemplate.annotations`. The RBGSet controller copies the
+   template annotations to child RBGs when creating them and replaces child
+   annotations with the template annotations during metadata sync. Set the
+   template annotation, not a child annotation.
 6. Admission rejects values other than `v1alpha1` and `v1`.
 7. Admission rejects `v1` for RBGs containing deprecated stateful roles.
 8. `RBGPredicate` watches the annotation, so annotation-only changes enqueue
@@ -605,12 +607,22 @@ rejected write follows the existing reconcile error and retry path.
 
 ### Migration
 
-1. Remove legacy discovery support and deploy the controller that supports v1.
-2. Existing RBGs without the annotation keep v1alpha1 content. Existing
-   `legacy` RBGs begin receiving `<rbg>` at their next reconcile.
-3. New RBGs default to `v1` through the mutating webhook. New RBGSets carry
+1. Before upgrading an existing RBGSet, pin its template to v1alpha1:
+
+   ```yaml
+   spec:
+     groupTemplate:
+       annotations:
+         rbg.workloads.x-k8s.io/discovery-config-version: v1alpha1
+   ```
+
+2. Remove legacy discovery support and deploy the controller that supports v1.
+3. Existing RBGs without the annotation keep v1alpha1 content. Existing
+   `legacy` RBGs begin receiving `<rbg>` at their next reconcile. Existing
+   RBGSet children inherit the pinned v1alpha1 annotation.
+4. New RBGs default to `v1` through the mutating webhook. New RBGSets carry
    the annotation in `spec.groupTemplate.annotations`.
-4. To migrate an existing RBG, set:
+5. To migrate an existing RBG, set:
 
    ```yaml
    metadata:
@@ -618,7 +630,10 @@ rejected write follows the existing reconcile error and retry path.
        rbg.workloads.x-k8s.io/discovery-config-version: v1
    ```
 
-5. Wait for reconcile and verify that ConfigMap content is `apiVersion: v1`.
+6. To migrate an existing RBGSet, change the annotation in
+   `spec.groupTemplate.annotations` to `v1`. The RBGSet controller propagates
+   the change to every child.
+7. Wait for reconcile and verify that ConfigMap content is `apiVersion: v1`.
 
 Rollback:
 
@@ -638,6 +653,7 @@ Rollback:
 - CREATE-only webhook defaulting; missing annotations are never defaulted on
   update.
 - RBGSet annotation propagation through `spec.groupTemplate.annotations`.
+- RBGSet metadata sync overwriting direct child annotation edits.
 - `RBGPredicate` enqueueing annotation-only changes.
 - Admission rejecting invalid annotation values and `v1` for deprecated
   stateful roles.
@@ -666,6 +682,11 @@ Rollback:
 - Existing RBGs without the annotation remain v1alpha1.
 - Existing `legacy` RBGs receive `<rbg>` after the mode selector is removed.
 - RBGSet children inherit the version annotation from the GroupTemplate.
+- A child created by an existing RBGSet pinned to v1alpha1 inherits
+  v1alpha1.
+- Changing an existing RBGSet's GroupTemplate annotation to v1 migrates all
+  children.
+- Direct child annotation edits are overwritten by RBGSet metadata sync.
 - Annotation-only changes are reconciled.
 - Rollback is rejected when v1alpha1 would exceed 1 MiB.
 
